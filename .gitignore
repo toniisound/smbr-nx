@@ -1,0 +1,11 @@
+/.tmp
+/build
+/dist
+/reference
+/tools
+
+*apk
+*elf
+*nacp
+*nro
+*sh
