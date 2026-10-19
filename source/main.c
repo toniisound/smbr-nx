@@ -85,38 +85,84 @@ static void check_syscalls(void) {
 
 static void check_data(void) {
   struct stat st;
-  if (stat(SO_NAME, &st) < 0)
-    fatal_error("Could not find\n%s.\nPlace it next to the NRO.", SO_NAME);
-  if (stat(CXX_SO_NAME, &st) < 0)
-    fatal_error("Could not find\n%s.\nPlace it next to the NRO.", CXX_SO_NAME);
+  char p[400];
+  snprintf(p, sizeof(p), "%s/%s", config.data_root, SO_NAME);
+  if (stat(p, &st) < 0)
+    fatal_error("Could not find\n%s\n\nPut the payload files next to the NRO.", p);
+  snprintf(p, sizeof(p), "%s/%s", config.data_root, CXX_SO_NAME);
+  if (stat(p, &st) < 0)
+    fatal_error("Could not find\n%s\n\nPut the payload files next to the NRO.", p);
   // game data: either a game.pck exported from upstream (preferred; see
   // tools/build_payload.sh) or the legacy APK assets/ folder
   char pck[300], assets[300];
   snprintf(pck, sizeof(pck), "%s/game.pck", config.data_root);
   snprintf(assets, sizeof(assets), "%s/assets/project.binary", config.data_root);
   if (stat(pck, &st) < 0 && stat(assets, &st) < 0)
-    fatal_error("Could not find game.pck.\nPlace it next to the NRO\n(or the APK's assets/ folder).");
+    fatal_error("Could not find\n%s\n\nPut the payload files next to the NRO.", pck);
 }
 
-// Resolve the app's data directory from the launch CWD so the port works from
-// any folder under /switch (not just /switch/smbr_nx). Falls back to the
-// compile-time default when the CWD doesn't hold libgodot_android.so.
-static void resolve_data_root(void) {
-  char cwd[256];
-  if (!getcwd(cwd, sizeof(cwd)) || !cwd[0]) return;
-  // drop any "device:" prefix ("sdmc:/switch/x" -> "/switch/x")
-  char *colon = strchr(cwd, ':');
-  char *base = colon ? colon + 1 : cwd;
-  if (!base[0]) return;
-  size_t l = strlen(base);
-  while (l > 1 && base[l - 1] == '/') base[--l] = 0; // strip trailing slashes
-  // only adopt it if the game binary is actually there
-  char so[300];
-  snprintf(so, sizeof(so), "%s/%s", base, SO_NAME);
+// ---------------------------------------------------------------------------
+// data root: the folder holding the NRO + payload. Not every launcher sets the
+// CWD to the NRO's folder (some leave it at "/"), so try, in order:
+//   1. the folder of argv[0] (the NRO path the loader passed us)
+//   2. the current working directory
+//   3. the compile-time default (/switch/smbr_nx)
+// and adopt the first one that actually holds libgodot_android.so. The game
+// then chdir()s there so relative paths (config.txt, the .so names) agree.
+// ---------------------------------------------------------------------------
+
+extern int __system_argc;
+extern char **__system_argv;
+
+static char s_root[256] = DEFAULT_DATA_ROOT;
+
+// normalize "sdmc:/switch/x/" -> "/switch/x"; returns 0 if nothing usable
+static int normalize_dir(const char *in, char *out, size_t sz) {
+  if (!in || !in[0]) return 0;
+  const char *colon = strchr(in, ':');
+  const char *base = colon ? colon + 1 : in;
+  if (base[0] != '/') return 0;
+  snprintf(out, sz, "%s", base);
+  size_t l = strlen(out);
+  while (l > 1 && out[l - 1] == '/') out[--l] = 0;
+  return 1;
+}
+
+static int dir_has_engine(const char *dir) {
+  char so[400];
   struct stat st;
-  if (stat(so, &st) != 0) return;
-  snprintf(config.data_root, sizeof(config.data_root), "%s", base);
-  snprintf(config.save_root, sizeof(config.save_root), "%s/save", base);
+  snprintf(so, sizeof(so), "%s/%s", dir, SO_NAME);
+  return stat(so, &st) == 0;
+}
+
+static void resolve_data_root(void) {
+  char cand[256];
+
+  if (__system_argc > 0 && __system_argv && __system_argv[0] &&
+      normalize_dir(__system_argv[0], cand, sizeof(cand))) {
+    char *slash = strrchr(cand, '/'); // strip "/smbr.nro"
+    if (slash && slash != cand) *slash = 0;
+    if (dir_has_engine(cand)) { snprintf(s_root, sizeof(s_root), "%s", cand); goto found; }
+  }
+
+  {
+    char cwd[256];
+    if (getcwd(cwd, sizeof(cwd)) && normalize_dir(cwd, cand, sizeof(cand)) &&
+        dir_has_engine(cand)) {
+      snprintf(s_root, sizeof(s_root), "%s", cand);
+      goto found;
+    }
+  }
+
+  // default stays in s_root; check_data() reports the full path if it's wrong
+found:
+  chdir(s_root);
+}
+
+// read_config() resets config, so (re)apply the resolved roots after it
+static void apply_data_root(void) {
+  snprintf(config.data_root, sizeof(config.data_root), "%s", s_root);
+  snprintf(config.save_root, sizeof(config.save_root), "%s/save", s_root);
 }
 
 static void set_screen_size(int w, int h) {
@@ -600,11 +646,12 @@ static void load_module(so_module *mod, const char *name, void *base, size_t lim
 int main(void) {
   cpu_boost(1);
 
+  resolve_data_root(); // find the NRO/payload folder and chdir() into it
   if (read_config(CONFIG_NAME) != 0)
     write_config(CONFIG_NAME);
+  apply_data_root();   // read_config() reset the roots
 
   check_syscalls();
-  resolve_data_root(); // adopt the actual launch folder as the data root
   stats_open();
   check_data();
   mkdir(config.save_root, 0777);
