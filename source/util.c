@@ -90,3 +90,8 @@ void cpu_boost(int on) {
 int ret0(void) { return 0; }
 
 int retm1(void) { return -1; }
+
+uint32_t own_process_handle(void) {
+  const Handle h = envGetOwnProcessHandle();
+  return h != INVALID_HANDLE ? h : CUR_PROCESS_HANDLE;
+}

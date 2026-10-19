@@ -21,6 +21,12 @@ void tls_setup_guard(void);
 int ret0(void);
 int retm1(void);
 
+// own process handle for the code-memory svcs: the real one when the loader
+// passed it, otherwise the CurrentProcess pseudo-handle (the kernel resolves it
+// to this process for svcMap/UnmapProcessCodeMemory and
+// svcSetProcessMemoryPermission)
+uint32_t own_process_handle(void);
+
 static inline void* armGetTlsRw(void) {
   void* ret;
   __asm__ ("mrs %x[data], s3_3_c13_c0_2" : [data] "=r" (ret));

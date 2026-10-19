@@ -78,7 +78,9 @@ static void check_syscalls(void) {
   if (!envIsSyscallHinted(0x77)) fatal_error("svcMapProcessCodeMemory is unavailable.");
   if (!envIsSyscallHinted(0x78)) fatal_error("svcUnmapProcessCodeMemory is unavailable.");
   if (!envIsSyscallHinted(0x73)) fatal_error("svcSetProcessMemoryPermission is unavailable.");
-  if (envGetOwnProcessHandle() == INVALID_HANDLE) fatal_error("Own process handle is unavailable.");
+  // some launchers do not pass the process handle: fall back to the pseudo-handle
+  if (envGetOwnProcessHandle() == INVALID_HANDLE)
+    debugPrintf("!! own process handle not provided by the loader; using CUR_PROCESS_HANDLE\n");
 }
 
 static void check_data(void) {
