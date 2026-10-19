@@ -75,6 +75,12 @@ void __libnx_initheap(void) {
 }
 
 static void check_syscalls(void) {
+  // so-loader ports need hbloader (real hardware + Atmosphere): it grants the
+  // code-memory svcs below. Emulators run the NRO directly, with no loader
+  // info at all, and the kernel kills the process on the first
+  // svcMapProcessCodeMemory -- say so while the console can still show it.
+  if (!envGetLoaderInfo() || !envGetLoaderInfoSize())
+    fatal_error("This port must be launched from hbmenu\non a real Switch with Atmosphere\n(hold R while opening a game).\n\nEmulators are not supported: they do not\nprovide the code-memory syscalls the\nloader needs.");
   if (!envIsSyscallHinted(0x77)) fatal_error("svcMapProcessCodeMemory is unavailable.");
   if (!envIsSyscallHinted(0x78)) fatal_error("svcUnmapProcessCodeMemory is unavailable.");
   if (!envIsSyscallHinted(0x73)) fatal_error("svcSetProcessMemoryPermission is unavailable.");
