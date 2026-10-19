@@ -23,7 +23,7 @@
 
 // Master debug switch: log file (<data_root>/smbr_debug.log), nxlink stdout,
 // and all debugPrintf/[io]/[audio] output. On during bring-up; off for release.
-#define DEBUG_LOG 0
+#define DEBUG_LOG 1
 // Per-file-operation logging (open/stat/access/fopen). Very noisy and slow
 // (one fflush per line during asset loading); requires DEBUG_LOG too.
 #define VERBOSE_IO 0
