@@ -16,6 +16,17 @@
 #include "error.h"
 
 void fatal_error(const char *fmt, ...) {
+  // log first: once the wrapper owns the EGL window the console below may not
+  // be able to show anything, and the process would just vanish
+  {
+    char msg[512];
+    va_list l;
+    va_start(l, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, l);
+    va_end(l);
+    debugPrintf("!!!!! FATAL: %s\n", msg);
+  }
+
   PadState pad;
   padConfigureInput(1, HidNpadStyleSet_NpadStandard);
   padInitializeDefault(&pad);

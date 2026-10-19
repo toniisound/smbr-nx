@@ -61,6 +61,14 @@ int debugPrintf(char *text, ...) {
   va_list list;
 
   if (s_log) {
+    // timestamp each line start (ms since the log opened)
+    static u64 t0;
+    static int at_line_start = 1;
+    if (!t0) t0 = armGetSystemTick();
+    if (at_line_start)
+      fprintf(s_log, "[%7llu] ", (unsigned long long)(armTicksToNs(armGetSystemTick() - t0) / 1000000ull));
+    const size_t tl = strlen(text);
+    at_line_start = tl > 0 && text[tl - 1] == '\n';
     va_start(list, text);
     vfprintf(s_log, text, list);
     va_end(list);

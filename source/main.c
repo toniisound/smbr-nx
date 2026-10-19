@@ -724,6 +724,23 @@ int main(void) {
     fatal_error("Could not create the EGL/GLES3 context.");
 
   debugPrintf("== SMB1R Switch wrapper booting; build " __DATE__ " " __TIME__ "; data_root=%s ==\n", config.data_root);
+  {
+    // launch environment: which loader started us, as what kind of applet,
+    // and with how much memory (applet/album mode has far less than a title)
+    u64 total = 0, used = 0;
+    svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
+    svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
+    const char *li = envGetLoaderInfo();
+    const u64 li_sz = envGetLoaderInfoSize();
+    char loader[96] = "(none)";
+    if (li && li_sz) snprintf(loader, sizeof(loader), "%.*s", (int)(li_sz < 95 ? li_sz : 95), li);
+    for (char *c = loader; *c; c++) if (*c == '\n' || *c == '\r') *c = ' ';
+    debugPrintf("== launch: loader=\"%s\" applet_type=%d argc=%d argv0=%s ==\n",
+                loader, (int)appletGetAppletType(), __system_argc,
+                (__system_argc > 0 && __system_argv && __system_argv[0]) ? __system_argv[0] : "(none)");
+    debugPrintf("== memory: total %llu MB, used %llu MB, heap override %d ==\n",
+                (unsigned long long)(total >> 20), (unsigned long long)(used >> 20), (int)envHasHeapOverride());
+  }
   debugPrintf("== EGL/GLES3 context created (%dx%d) ==\n", screen_width, screen_height);
 
   // libc++ first so libgodot's C++ ABI imports resolve against it
