@@ -1,0 +1,27 @@
+diff --git a/Scripts/Classes/Singletons/DiscordManager.gd b/Scripts/Classes/Singletons/DiscordManager.gd
+index f09eec5a..4da378ff 100644
+--- a/Scripts/Classes/Singletons/DiscordManager.gd
++++ b/Scripts/Classes/Singletons/DiscordManager.gd
+@@ -1,6 +1,6 @@
+ extends Node
+ 
+-var enabled: bool = ProjectSettings.get_setting("application/use_discord", false) and not (OS.has_feature("linux") and OS.has_feature("arm64"))
++var enabled: bool = ProjectSettings.get_setting("application/use_discord", false) and not (OS.has_feature("linux") and OS.has_feature("arm64")) and Engine.has_singleton("DiscordRPC")
+ var rpc = null
+ 
+ class DiscordRPCStub:
+diff --git a/Scripts/Parts/ResourcePackLoader.gd b/Scripts/Parts/ResourcePackLoader.gd
+index 10ea6d16..496d7fe8 100644
+--- a/Scripts/Parts/ResourcePackLoader.gd
++++ b/Scripts/Parts/ResourcePackLoader.gd
+@@ -35,7 +35,9 @@ func create_container(resource_pack := "") -> void:
+ 		image.load(resource_pack + "/icon.png")
+ 		container.icon = ImageTexture.create_from_image(image)
+ 	elif FileAccess.file_exists(resource_pack + "/icon.gif"):
+-		container.icon = GifManager.animated_texture_from_file(resource_pack + "/icon.gif")
++		# Switch: the godotgif GDExtension is not loaded there, so GifManager may not exist.
++		if Engine.has_singleton("GifManager"):
++			container.icon = Engine.get_singleton("GifManager").animated_texture_from_file(resource_pack + "/icon.gif")
+ 	container.pack_id = resource_pack.replace(Global.config_path.path_join("resource_packs"), "").trim_prefix("/")
+ 	$"../ScrollContainer/VBoxContainer".add_child(container)
+ 	containers.append(container)

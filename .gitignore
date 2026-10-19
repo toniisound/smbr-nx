@@ -2,10 +2,13 @@
 /build
 /dist
 /reference
-/tools
 
 *apk
 *elf
 *nacp
 *nro
 *sh
+!tools/*.sh
+# payload build (tools/build_payload.sh)
+payload/
+.payload-work/

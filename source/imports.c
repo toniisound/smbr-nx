@@ -491,6 +491,16 @@ static const DynLibFunction dynlib_functions[] = {
   { "unsetenv", (uintptr_t)&unsetenv },
   { "raise", (uintptr_t)&raise },
   { "sigaction", (uintptr_t)&sigaction_fake },
+  // Godot 4.6 stable: signal() for crash-handler setup; returning SIG_DFL (0)
+  // is harmless since nothing on Switch ever delivers POSIX signals
+  { "signal", (uintptr_t)&ret0 },
+  // Godot 4.6 stable: FileAccessUnix extended attributes (FileAccess.get/
+  // set_extended_attribute). fatfs has no xattrs: fail every call (-1), which
+  // the engine treats as "attribute absent / unsupported"
+  { "getxattr", (uintptr_t)&retm1 },
+  { "setxattr", (uintptr_t)&retm1 },
+  { "removexattr", (uintptr_t)&retm1 },
+  { "listxattr", (uintptr_t)&retm1 },
   { "kill", (uintptr_t)&proc_enosys },
   { "getauxval", (uintptr_t)&getauxval_fake },
   { "syscall", (uintptr_t)&syscall_fake },

@@ -1,14 +1,19 @@
 <div align="center"><img src="./extras/logo.png" width="300"><h1 align="center">Super Mario Bros. Remastered · Nintendo Switch port</h1>
 </div>
-A wrapper/loader that runs the <b>Android build of Super Mario Bros. Remastered.</b>
 
-(an open-source fan game created by [JoeMama](https://github.com/JHDev2006/Super-Mario-Bros.-Remastered-Public)), GPL-3.0, adapted for Android
-in [this repo's sibling source project](https://github.com/mircowuffwuff/super-mario-bros.-remastered-android)) on the Nintendo Switch. It loads the game's
-own arm64-v8a
-`libgodot_android.so`, provides a minimal Android-like environment (fake JNI, a
-bionic→newlib libc shim, and a GLES3/EGL import table backed by mesa), and drives
-the engine's `GodotLib` native lifecycle directly. Same technique and wrapper
-architecture as the [smwr_nx](https://github.com/delsonazevedo/Super-Mario-World-Remastered-Plus-Switch) port.
+A wrapper/loader that runs **Super Mario Bros. Remastered** (an open-source fan
+game created by [JoeMama](https://github.com/JHDev2006/Super-Mario-Bros.-Remastered-Public),
+GPL-3.0) on the Nintendo Switch, built **straight from the upstream repository**.
+
+It loads the official Godot arm64-v8a Android engine (`libgodot_android.so`),
+provides a minimal Android-like environment (fake JNI, a bionic→newlib libc
+shim, and a GLES3/EGL import table backed by mesa), drives the engine's
+`GodotLib` native lifecycle directly, and mounts the game as a `game.pck`
+exported from upstream. Same technique and wrapper architecture as the
+[smwr_nx](https://github.com/delsonazevedo/Super-Mario-World-Remastered-Plus-Switch) port.
+
+Because the game data comes from upstream (not from a separate Android fork),
+updating the port to a new upstream version is a single command.
 
 ### How to install
 
@@ -16,10 +21,10 @@ On your SD card, the app lives in `/switch/smbr_nx/`:
 
 ```
 /switch/smbr_nx/smbr.nro              <- the port (this repo builds it)
-/switch/smbr_nx/libgodot_android.so   <- arm64-v8a engine binary (from the APK)
-/switch/smbr_nx/libc++_shared.so      <- arm64-v8a C++ runtime (from the APK)
-/switch/smbr_nx/assets/               <- game data (the APK's assets/ folder)
-/switch/smbr_nx/save/baserom.nes      <- your legally own Super Mario Bros. (NES) dump.
+/switch/smbr_nx/libgodot_android.so   <- Godot 4.6.3 arm64-v8a engine   } built by
+/switch/smbr_nx/libc++_shared.so      <- matching C++ runtime           } tools/build_payload.sh
+/switch/smbr_nx/game.pck              <- game data exported from upstream }
+/switch/smbr_nx/save/baserom.nes      <- your legally owned Super Mario Bros. (NES) dump
 ```
 
 **Place your ROM before first launch**, at exactly `/switch/smbr_nx/save/baserom.nes`.
@@ -30,6 +35,35 @@ forwarder, so the port runs with full RAM. It will not work in applet/album mode
 Saves and `config.txt` live in `/switch/smbr_nx/save/`.
 
 ### How to build
+
+#### 1. The game payload (`game.pck` + engine `.so` files)
+
+On Linux x86_64 (or WSL) with `git`, `curl`, `unzip`, `python3`:
+
+```sh
+tools/build_payload.sh                 # latest upstream main
+tools/build_payload.sh 1.1-stable      # or any upstream tag / branch / commit
+```
+
+The script downloads the Godot 4.6.3 headless editor and only the Android
+template out of the export templates, clones upstream, applies
+`tools/smb1r-switch.patch`, exports `game.pck`, and boots it headless as a
+smoke test. Output goes to `payload/smbr_nx/`; `payload_version.txt` records
+the upstream commit and Godot version used.
+
+The Switch patch is deliberately tiny:
+
+* the two optional GDExtensions (Discord RPC and the GIF loader) are left out
+  of the Switch build, and the scripts that use them check that their
+  singletons exist first;
+* an Android export preset (for the `.pck` only) and ETC2/ASTC texture import
+  are added by the script, not by the patch, so upstream changes to
+  `project.godot` / `export_presets.cfg` never conflict.
+
+The engine version used by the payload must match the one the wrapper was
+built for (`GODOT_VERSION` in the script, 4.6.3 by default).
+
+#### 2. The wrapper (`smbr.nro`)
 
 You need devkitA64 (devkitPro) with these packages:
 
@@ -43,13 +77,21 @@ make
 
 ### Credits
 - **JoeMama** and contributors — [Super Mario Bros. Remastered (the game, GPL-3.0)](https://github.com/JHDev2006/Super-Mario-Bros.-Remastered-Public)
-- **mircowuffwuff** — [the Android Fork used](https://github.com/mircowuffwuff/super-mario-bros.-remastered-android)
+- **delsonazevedo** — [the original Switch wrapper](https://github.com/delsonazevedo/Super-Mario-Bros.-Remastered-Switch) this port builds on
+- **mircowuffwuff** — [the Android port](https://github.com/mircowuffwuff/super-mario-bros.-remastered-android) the original wrapper ran
 - **fgsfds** and **NaGaa95** — the Switch so-loader groundwork
 
 ### Legal
 
 This project has no affiliation with Nintendo. It contains no game code or
-assets — supply your own `libgodot_android.so`, `libc++_shared.so` and `assets/`
-from the fan game's APK, and your own legally-dumped NES ROM. The game itself is
-GPL-3.0 (see the source project's LICENSE); this wrapper's own source is MIT, see
-LICENSE.
+assets — build the payload yourself from the upstream sources with
+`tools/build_payload.sh`, and supply your own legally-dumped NES ROM. The game
+itself is GPL-3.0 (see the upstream project's LICENSE); the Godot engine is MIT;
+this wrapper's own source is MIT, see LICENSE.
+
+### Donations
+
+This port is completely free and open-source. Optional donations to support the development are always welcome:
+
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/toniisound)
+[![PayPal](https://img.shields.io/badge/PayPal-Donate-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/toniisound)

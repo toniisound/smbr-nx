@@ -1,4 +1,4 @@
-/* main.c -- Super Mario Bros. Remastered (SMB1R, Godot 4.5, Android) Switch
+/* main.c -- Super Mario Bros. Remastered (SMB1R, Godot 4.6, Android engine) Switch
  * wrapper entry point.
  *
  * Loads the arm64-v8a libc++_shared.so + libgodot_android.so pair, provides a
@@ -87,10 +87,13 @@ static void check_data(void) {
     fatal_error("Could not find\n%s.\nPlace it next to the NRO.", SO_NAME);
   if (stat(CXX_SO_NAME, &st) < 0)
     fatal_error("Could not find\n%s.\nPlace it next to the NRO.", CXX_SO_NAME);
-  char assets[300];
+  // game data: either a game.pck exported from upstream (preferred; see
+  // tools/build_payload.sh) or the legacy APK assets/ folder
+  char pck[300], assets[300];
+  snprintf(pck, sizeof(pck), "%s/game.pck", config.data_root);
   snprintf(assets, sizeof(assets), "%s/assets/project.binary", config.data_root);
-  if (stat(assets, &st) < 0)
-    fatal_error("Could not find\nassets/project.binary.\nCopy the APK's assets/ folder next to the NRO.");
+  if (stat(pck, &st) < 0 && stat(assets, &st) < 0)
+    fatal_error("Could not find game.pck.\nPlace it next to the NRO\n(or the APK's assets/ folder).");
 }
 
 // Resolve the app's data directory from the launch CWD so the port works from
