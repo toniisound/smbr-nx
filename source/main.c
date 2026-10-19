@@ -256,6 +256,7 @@ static void     (*e_onRendererPaused)(void *env, void *cls);
 #define G "Java_org_godotengine_godot_GodotLib_"
 
 static void resolve_entry_points(void) {
+  debugPrintf(">> resolving GodotLib entry points\n");
   e_JNI_OnLoad           = (void *)so_try_find_addr_rx(&game_mod, "JNI_OnLoad");
   e_initialize           = (void *)so_find_addr_rx(&game_mod, G "initialize");
   e_initialize44         = (void *)e_initialize;
@@ -636,6 +637,61 @@ static void watchdog_dump(void) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// crash handler: libnx calls __libnx_exception_handler on the dedicated
+// exception stack for any CPU exception in this process (data abort, bad
+// instruction, ...). Dump the faulting context into the debug log, with the
+// same module-relative offsets as the watchdog, then let the process die.
+// ---------------------------------------------------------------------------
+
+u8 __nx_exception_stack[0x8000] __attribute__((aligned(16)));
+u64 __nx_exception_stack_size = sizeof(__nx_exception_stack);
+
+static const char *exception_name(u32 desc) {
+  switch (desc) {
+    case ThreadExceptionDesc_InstructionAbort:    return "InstructionAbort";
+    case ThreadExceptionDesc_MisalignedPC:        return "MisalignedPC";
+    case ThreadExceptionDesc_MisalignedSP:        return "MisalignedSP";
+    case ThreadExceptionDesc_SError:              return "SError";
+    case ThreadExceptionDesc_BadSVC:              return "BadSVC";
+    case ThreadExceptionDesc_Trap:                return "Trap (undefined instruction / brk)";
+    case ThreadExceptionDesc_Other:               return "Other (data abort)";
+    default:                                      return "?";
+  }
+}
+
+void __libnx_exception_handler(ThreadExceptionDump *ctx) {
+  debugPrintf("\n!!!!! CRASH: %s (desc 0x%x)\n", exception_name(ctx->error_desc), ctx->error_desc);
+  debugPrintf("[crash] bases: main()=%p godot=%p libc++=%p\n",
+              (void *)&main, game_mod.load_virtbase, cxx_mod.load_virtbase);
+  log_code_addr("PC ", ctx->pc.x);
+  log_code_addr("LR ", ctx->lr.x);
+  debugPrintf("[crash]   FAR %016llx  ESR %08x  SP %016llx\n",
+              (unsigned long long)ctx->far.x, ctx->esr, (unsigned long long)ctx->sp.x);
+  for (int i = 0; i < 29; i += 4)
+    debugPrintf("[crash]   x%-2d %016llx %016llx %016llx %016llx\n", i,
+                (unsigned long long)ctx->cpu_gprs[i].x,
+                (unsigned long long)(i + 1 < 29 ? ctx->cpu_gprs[i + 1].x : 0),
+                (unsigned long long)(i + 2 < 29 ? ctx->cpu_gprs[i + 2].x : 0),
+                (unsigned long long)(i + 3 < 29 ? ctx->cpu_gprs[i + 3].x : 0));
+  // frame-pointer chain backtrace
+  uint64_t fp = ctx->fp.x;
+  const uint64_t sp = ctx->sp.x;
+  for (int i = 0; i < 16; i++) {
+    if (fp < sp || fp > sp + (16ull << 20) || (fp & 7)) break;
+    const uint64_t next = *(const uint64_t *)fp;
+    const uint64_t ret = *(const uint64_t *)(fp + 8);
+    if (!ret) break;
+    char tag[8];
+    snprintf(tag, sizeof(tag), "#%d ", i);
+    log_code_addr(tag, ret);
+    if (next <= fp) break;
+    fp = next;
+  }
+  debugPrintf("!!!!! end of crash dump\n");
+  svcExitProcess();
+}
+
 static void load_module(so_module *mod, const char *name, void *base, size_t limit) {
   int res = so_load(mod, name, base, limit);
   if (res < 0)
@@ -679,12 +735,15 @@ int main(void) {
   smbr_resolve_imports(&game_mod);
   debugPrintf("== imports resolved ==\n");
   so_patch(&game_mod);
+  debugPrintf("== so_patch done; dynsym: godot %d, libc++ %d ==\n", game_mod.num_syms, cxx_mod.num_syms);
 
   // resolve exports before so_finalize maps the code and locks load_base out
   resolve_entry_points();
 
+  debugPrintf("== entry points resolved; finalizing libc++ ==\n");
   so_finalize(&cxx_mod);
   so_flush_caches(&cxx_mod);
+  debugPrintf("== finalizing libgodot ==\n");
   so_finalize(&game_mod);
   so_flush_caches(&game_mod);
   debugPrintf("== so_finalize ok; running init arrays ==\n");
