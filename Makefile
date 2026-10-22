@@ -12,8 +12,8 @@ include $(DEVKITPRO)/libnx/switch_rules
 #---------------------------------------------------------------------------------
 TARGET		:=	smbr
 APP_TITLE	:=	Super Mario Bros. Remastered
-APP_AUTHOR	:=	delson
-APP_VERSION	:=	1.0.0
+APP_AUTHOR	:=	Toniisound
+APP_VERSION	:=	1.1.0
 BUILD		:=	build
 SOURCES		:=	source
 DATA		:=	data
