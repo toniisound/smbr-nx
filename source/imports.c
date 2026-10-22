@@ -52,16 +52,18 @@ extern void  __stack_chk_fail(void);
 // ---------------------------------------------------------------------------
 
 int __android_log_print(int prio, const char *tag, const char *fmt, ...) {
-  (void)prio;
 #if DEBUG_LOG
   va_list list;
   static char string[0x1000];
   va_start(list, fmt);
   vsnprintf(string, sizeof(string), fmt, list);
   va_end(list);
-  debugPrintf("[%s] %s\n", tag ? tag : "", string);
+  if (prio >= 6)
+    debugPrintf("[%s] %s\n", tag ? tag : "", string);
+  else
+    debugPrintfLazy("[%s] %s\n", tag ? tag : "", string);
 #else
-  (void)tag; (void)fmt;
+  (void)prio; (void)tag; (void)fmt;
 #endif
   return 0;
 }

@@ -1,3 +1,16 @@
+diff --git a/Scripts/Classes/RomAssetRipper.gd b/Scripts/Classes/RomAssetRipper.gd
+index cc00d54d..66a42bb8 100644
+--- a/Scripts/Classes/RomAssetRipper.gd
++++ b/Scripts/Classes/RomAssetRipper.gd
+@@ -69,8 +69,6 @@ func draw_tile(
+ 			for pixel: int in combine_bytes(row[0], row[1]):
+ 				if x + pos.x < img_size.x:
+ 					if not chroma_key or image.get_pixelv(Vector2i(x, y) + pos) == Color.GREEN:
+-						if palette[pixel].a != 1 and palette[pixel].a != 0:
+-							print(image.resource_path, palette[pixel])
+ 						image.set_pixelv(Vector2i(x, y) + pos, palette[pixel])
+ 				x += 1
+ 		y += 1
 diff --git a/Scripts/Classes/Singletons/DiscordManager.gd b/Scripts/Classes/Singletons/DiscordManager.gd
 index f09eec5a..4da378ff 100644
 --- a/Scripts/Classes/Singletons/DiscordManager.gd

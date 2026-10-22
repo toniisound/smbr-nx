@@ -286,23 +286,27 @@ int truncate_fake(const char *path, int64_t len) {
 }
 
 int __android_log_vprint_fake(int prio, const char *tag, const char *fmt, va_list va) {
-  (void)prio;
 #if DEBUG_LOG
   char buf[0x800];
   vsnprintf(buf, sizeof(buf), fmt, va);
-  debugPrintf("[%s] %s\n", tag ? tag : "", buf);
+  if (prio >= 6) // ANDROID_LOG_ERROR / FATAL: write through
+    debugPrintf("[%s] %s\n", tag ? tag : "", buf);
+  else
+    debugPrintfLazy("[%s] %s\n", tag ? tag : "", buf);
 #else
-  (void)tag; (void)fmt; (void)va;
+  (void)prio; (void)tag; (void)fmt; (void)va;
 #endif
   return 0;
 }
 
 int android_log_write_fake(int prio, const char *tag, const char *msg) {
-  (void)prio;
 #if DEBUG_LOG
-  debugPrintf("[%s] %s\n", tag ? tag : "", msg ? msg : "");
+  if (prio >= 6)
+    debugPrintf("[%s] %s\n", tag ? tag : "", msg ? msg : "");
+  else
+    debugPrintfLazy("[%s] %s\n", tag ? tag : "", msg ? msg : "");
 #else
-  (void)tag; (void)msg;
+  (void)prio; (void)tag; (void)msg;
 #endif
   return 0;
 }

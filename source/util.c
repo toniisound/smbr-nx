@@ -56,6 +56,30 @@ void userAppExit(void) {
 
 #endif
 
+#if DEBUG_LOG
+// engine chatter (print() output) is buffered and flushed at most every 250 ms;
+// wrapper lines, engine errors and the crash dump still flush immediately
+static int s_lazy_line = 0;
+static u64 s_last_flush = 0;
+#endif
+
+int debugPrintfLazy(char *text, ...) {
+#if DEBUG_LOG
+  if (!s_log) return 0;
+  s_lazy_line = 1;
+  va_list list;
+  va_start(list, text);
+  char buf[0x900];
+  vsnprintf(buf, sizeof(buf), text, list);
+  va_end(list);
+  debugPrintf("%s", buf);
+  s_lazy_line = 0;
+#else
+  (void)text;
+#endif
+  return 0;
+}
+
 int debugPrintf(char *text, ...) {
 #if DEBUG_LOG
   va_list list;
@@ -72,7 +96,13 @@ int debugPrintf(char *text, ...) {
     va_start(list, text);
     vfprintf(s_log, text, list);
     va_end(list);
-    fflush(s_log); // flush each line so a crash still leaves a complete log
+    // flush each line so a crash still leaves a complete log, except lazy
+    // (engine print) lines, which flush at most every 250 ms
+    const u64 now = armGetSystemTick();
+    if (!s_lazy_line || armTicksToNs(now - s_last_flush) > 250000000ull) {
+      fflush(s_log);
+      s_last_flush = now;
+    }
   }
 
   if (g_log_stdout) {

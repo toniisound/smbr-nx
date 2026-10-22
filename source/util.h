@@ -12,6 +12,8 @@
 #include <stdint.h>
 
 int debugPrintf(char *text, ...);
+// same, but buffered: flushed at most every 250 ms (engine print() chatter)
+int debugPrintfLazy(char *text, ...);
 
 void cpu_boost(int on);
 

@@ -6,7 +6,8 @@
 #   tools/build_payload.sh [upstream_ref] [out_dir]
 #
 #   upstream_ref  branch, tag or commit of JHDev2006/Super-Mario-Bros.-Remastered-Public
-#                 (default: main)
+#                 (default: the latest *-stable release tag; "main" for the
+#                 development branch, which can carry unreleased breakage)
 #   out_dir       where to put the files (default: ./payload/smbr_nx)
 #
 # Produces in out_dir:
@@ -21,7 +22,7 @@ set -euo pipefail
 
 GODOT_VERSION="${GODOT_VERSION:-4.6.3}"
 UPSTREAM_URL="https://github.com/JHDev2006/Super-Mario-Bros.-Remastered-Public.git"
-UPSTREAM_REF="${1:-main}"
+UPSTREAM_REF="${1:-}"
 OUT_DIR="$(realpath -m "${2:-payload/smbr_nx}")"
 
 TOOLS_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -62,8 +63,12 @@ if [ ! -d "$SRC/.git" ]; then
   log "Cloning upstream"
   git clone -q "$UPSTREAM_URL" "$SRC"
 fi
+git -C "$SRC" fetch -q --tags origin
+if [ -z "$UPSTREAM_REF" ]; then
+  UPSTREAM_REF="$(git -C "$SRC" tag -l '*-stable' | sort -V | tail -1)"
+  [ -n "$UPSTREAM_REF" ] || UPSTREAM_REF=main
+fi
 log "Checking out upstream ${UPSTREAM_REF}"
-git -C "$SRC" fetch -q origin
 git -C "$SRC" checkout -q --force "$UPSTREAM_REF" 2>/dev/null || git -C "$SRC" checkout -q --force "origin/$UPSTREAM_REF"
 git -C "$SRC" clean -qfdx -e .godot   # keep the import cache between runs
 UPSTREAM_REV="$(git -C "$SRC" rev-parse --short HEAD)"
@@ -150,6 +155,6 @@ if grep -q 'SCRIPT ERROR' "$WORK/smoke.log"; then
   exit 1
 fi
 
-printf 'upstream %s\ngodot %s\n' "$UPSTREAM_REV" "$GODOT_VERSION" > "$OUT_DIR/payload_version.txt"
-log "Done: upstream ${UPSTREAM_REV}, Godot ${GODOT_VERSION}"
+printf 'upstream %s (%s)\ngodot %s\n' "$UPSTREAM_REF" "$UPSTREAM_REV" "$GODOT_VERSION" > "$OUT_DIR/payload_version.txt"
+log "Done: upstream ${UPSTREAM_REF} (${UPSTREAM_REV}), Godot ${GODOT_VERSION}"
 ls -la "$OUT_DIR"

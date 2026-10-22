@@ -41,8 +41,8 @@ Saves and `config.txt` live in `/switch/smbr_nx/save/`.
 On Linux x86_64 (or WSL) with `git`, `curl`, `unzip`, `python3`:
 
 ```sh
-tools/build_payload.sh                 # latest upstream main
-tools/build_payload.sh 1.1-stable      # or any upstream tag / branch / commit
+tools/build_payload.sh                 # latest upstream stable release (e.g. 1.1-stable)
+tools/build_payload.sh main            # or any upstream tag / branch / commit
 ```
 
 The script downloads the Godot 4.6.3 headless editor and only the Android
