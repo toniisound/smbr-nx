@@ -486,9 +486,9 @@ static void game_thread_fn(void *arg) {
   args[nargs++] = "--rendering-method";
   args[nargs++] = "gl_compatibility";
   // no --main-pack: official release templates are built with
-  // disable_path_overrides and abort on it. Instead the engine's own lookup
-  // opens "apk.pck" (exec path "apk" + ".pck") through the filesystem
-  // FileAccess, and jni_fake maps that name to <data_root>/game.pck.
+  // disable_path_overrides and abort on it. Instead the engine loads
+  // res://assets.sparsepck through the (fake) AAssetManager, which serves
+  // <data_root>/game.pck for that name (godot_shim.c).
 #if DEBUG_LOG
   args[nargs++] = "--verbose";
 #endif

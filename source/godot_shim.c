@@ -418,7 +418,18 @@ void *AAssetManager_open_fake(void *mgr, const char *filename, int mode) {
   }
 
   char path[768];
-  snprintf(path, sizeof(path), "%s/assets/%s", config.data_root, filename);
+  if (!strcmp(filename, "assets.sparsepck")) {
+    // Godot's only main-pack hook on Android release builds:
+    // ProjectSettings::_setup loads res://assets.sparsepck through this asset
+    // manager before falling back to loose assets/ files (the exec-path .pck
+    // lookup is skipped there because _execpath is still empty at that point,
+    // and --main-pack is compiled out). A regular, non-sparse PCK loads fine
+    // through it, so serve the payload's game.pck.
+    snprintf(path, sizeof(path), "%s/game.pck", config.data_root);
+    debugPrintf("[assets] assets.sparsepck -> %s\n", path);
+  } else {
+    snprintf(path, sizeof(path), "%s/assets/%s", config.data_root, filename);
+  }
   FILE *f = fopen(path, "rb");
 #if VERBOSE_IO
   debugPrintf("AAssetManager_open(\"%s\") -> %p\n", filename, (void *)f);
