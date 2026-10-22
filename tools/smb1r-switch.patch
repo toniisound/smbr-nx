@@ -25,3 +25,25 @@ index 10ea6d16..496d7fe8 100644
  	container.pack_id = resource_pack.replace(Global.config_path.path_join("resource_packs"), "").trim_prefix("/")
  	$"../ScrollContainer/VBoxContainer".add_child(container)
  	containers.append(container)
+diff --git a/addons/mod_loader/api/log.gd b/addons/mod_loader/api/log.gd
+index f9fedc8f..62e43c60 100644
+--- a/addons/mod_loader/api/log.gd
++++ b/addons/mod_loader/api/log.gd
+@@ -518,6 +518,9 @@ static func _get_date_time_string() -> String:
+ # =============================================================================
+ 
+ static func _write_to_log_file(string_to_write: String) -> void:
++	# Switch/Android: user://logs is only created by desktop file logging
++	if not DirAccess.dir_exists_absolute(MOD_LOG_PATH.get_base_dir()):
++		DirAccess.make_dir_recursive_absolute(MOD_LOG_PATH.get_base_dir())
+ 	if not FileAccess.file_exists(MOD_LOG_PATH):
+ 		_rotate_log_file()
+ 
+@@ -553,6 +556,7 @@ static func _rotate_log_file() -> void:
+ 	var log_file := FileAccess.open(MOD_LOG_PATH, FileAccess.WRITE)
+ 	if log_file == null:
+ 		assert(false, "Could not open log file, error code: %s" % error)
++		return # release builds strip the assert: never call into a null FileAccess
+ 	log_file.store_string('%s Created log' % _get_date_string())
+ 	log_file.close()
+ 

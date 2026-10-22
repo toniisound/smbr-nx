@@ -722,9 +722,14 @@ int main(void) {
   check_data();
   mkdir(config.save_root, 0777);
   {
-    char cache[300];
-    snprintf(cache, sizeof(cache), "%s/cache", config.save_root);
-    mkdir(cache, 0777);
+    char d[300];
+    snprintf(d, sizeof(d), "%s/cache", config.save_root);
+    mkdir(d, 0777);
+    // user://logs: desktop Godot creates it for file logging, Android/mobile
+    // builds don't, and SMB1R's mod loader opens user://logs/modloader.log
+    // without checking (null FileAccess -> crash in release templates)
+    snprintf(d, sizeof(d), "%s/logs", config.save_root);
+    mkdir(d, 0777);
   }
   setenv("HOME", config.save_root, 1);
 
