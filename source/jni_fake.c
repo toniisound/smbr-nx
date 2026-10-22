@@ -648,6 +648,12 @@ static void *call_object(void *recv, FakeID *id, va_list va) {
     return &g_renderview;
   }
   if (!strcmp(name, "getClassLoader"))  return make_generic(K_GENERIC);
+  // Godot >= 4.6 resolves every Java class through ClassLoader.loadClass()
+  // (jni_utils.cpp jni_find_class) instead of FindClass. Answer like the fake
+  // FindClass does: without it GodotJavaWrapper bails out in its constructor,
+  // every Godot method id stays 0, and get_godot_view() returns null ->
+  // Data Abort in GodotJavaViewWrapper (DisplayServerAndroid never null-checks)
+  if (!strcmp(name, "loadClass"))       return &g_cls_generic;
   // GodotIO
   if (!strcmp(name, "getLocale"))    return jni_make_string(DEVICE_LOCALE);
   if (!strcmp(name, "getModel"))     return jni_make_string("Nintendo Switch");
