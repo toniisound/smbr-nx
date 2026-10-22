@@ -38,6 +38,48 @@ index 10ea6d16..496d7fe8 100644
  	container.pack_id = resource_pack.replace(Global.config_path.path_join("resource_packs"), "").trim_prefix("/")
  	$"../ScrollContainer/VBoxContainer".add_child(container)
  	containers.append(container)
+diff --git a/Scripts/UI/RomVerifier.gd b/Scripts/UI/RomVerifier.gd
+index 359e2526..949570f3 100644
+--- a/Scripts/UI/RomVerifier.gd
++++ b/Scripts/UI/RomVerifier.gd
+@@ -41,14 +41,29 @@ func _ready() -> void:
+ 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
+ 
+ func find_local_rom() -> String:
+-	var exe_dir := OS.get_executable_path().get_base_dir()
+-	var dir := DirAccess.open(exe_dir)
+-	if not dir:
+-		return ""
+-	for file_name in dir.get_files():
+-		if file_name.to_lower().ends_with(".nes"):
+-			return exe_dir.path_join(file_name)
+-	return ""
++	# Switch/Android: there is no file dialog or drag-and-drop and the
++	# executable path is empty, so also look in the save folder (user://)
++	# and the folder above it (next to the NRO), for any valid .nes file.
++	var search_dirs: Array[String] = [OS.get_executable_path().get_base_dir()]
++	if OS.has_feature("android"):
++		search_dirs.append(Global.config_path)
++		search_dirs.append(OS.get_user_data_dir())
++		search_dirs.append(OS.get_user_data_dir().get_base_dir())
++	var fallback := ""
++	for search_dir in search_dirs:
++		if search_dir.is_empty():
++			continue
++		var dir := DirAccess.open(search_dir)
++		if not dir:
++			continue
++		for file_name in dir.get_files():
++			if file_name.to_lower().ends_with(".nes"):
++				var candidate := search_dir.path_join(file_name)
++				if is_valid_rom(candidate):
++					return candidate
++				if fallback.is_empty():
++					fallback = candidate
++	return fallback
+   
+ func on_file_dropped(files: PackedStringArray) -> void:
+ 	for file in files:
 diff --git a/addons/mod_loader/api/log.gd b/addons/mod_loader/api/log.gd
 index f9fedc8f..62e43c60 100644
 --- a/addons/mod_loader/api/log.gd
