@@ -718,7 +718,7 @@ static const DynLibFunction dynlib_functions[] = {
   { "write", (uintptr_t)&write },
   { "access", (uintptr_t)&access_fake },
   { "mkdir", (uintptr_t)&mkdir_fake },
-  { "chdir", (uintptr_t)&chdir },
+  { "chdir", (uintptr_t)&chdir_fake },
   { "getcwd", (uintptr_t)&getcwd_fake },
   { "readlink", (uintptr_t)&readlink_fake },
   { "realpath", (uintptr_t)&realpath_fake },

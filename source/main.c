@@ -490,7 +490,9 @@ static void game_thread_fn(void *arg) {
   // res://assets.sparsepck through the (fake) AAssetManager, which serves
   // <data_root>/game.pck for that name (godot_shim.c).
 #if DEBUG_LOG
-  args[nargs++] = "--verbose";
+  // --verbose logs every resource load; it costs real time on the SD, so it
+  // is opt-in through config.txt ("verbose 1")
+  if (config.verbose) args[nargs++] = "--verbose";
 #endif
   void *cmdline = jni_new_string_array(nargs, args);
 

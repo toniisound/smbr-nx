@@ -327,11 +327,78 @@ int isatty_fake(int fd) { (void)fd; return 0; }
 // (the empty-character-select bug). Mimic Android: cwd is always "/", and the
 // sandbox_path() rebase in libc_shim keeps stray absolute writes ("/saves")
 // inside the app's save dir instead of the SD root.
+//
+// The engine's own chdir() calls are tracked in that same Android view:
+// OS_Android::get_user_data_dir() resolves the data dir with
+// chdir(dir) + getcwd() (_remove_symlink), and DirAccessUnix::change_dir()
+// does chdir(try_dir) ... chdir(prev_dir). With a constant "/" the user data
+// dir became "/" and DirAccess on user:// failed (no shader cache). Until the
+// engine chdir()s anywhere this still reports "/" for project discovery.
+static char s_gd_cwd[1024] = "/";
+static Mutex s_gd_cwd_lock;
+
+// collapse "//", "/./" and "/x/.." in an absolute path, in place
+static void normalize_abs_path(char *p) {
+  char out[1024];
+  size_t o = 0;
+  const char *s = p;
+  out[o++] = '/';
+  while (*s) {
+    while (*s == '/') s++;
+    if (!*s) break;
+    const char *e = s;
+    while (*e && *e != '/') e++;
+    const size_t n = (size_t)(e - s);
+    if (n == 1 && s[0] == '.') {
+      // skip
+    } else if (n == 2 && s[0] == '.' && s[1] == '.') {
+      if (o > 1) { o--; while (o > 1 && out[o - 1] != '/') o--; }
+    } else {
+      if (o > 1 && out[o - 1] != '/') out[o++] = '/';
+      if (o + n >= sizeof(out) - 1) break;
+      memcpy(out + o, s, n);
+      o += n;
+    }
+    s = e;
+  }
+  if (o > 1 && out[o - 1] == '/') o--;
+  out[o] = 0;
+  strcpy(p, out);
+}
+
+int chdir_fake(const char *path) {
+  if (!path || !path[0]) { errno = ENOENT; return -1; }
+  char abs[1024];
+  mutexLock(&s_gd_cwd_lock);
+  if (path[0] == '/')
+    snprintf(abs, sizeof(abs), "%s", path);
+  else
+    snprintf(abs, sizeof(abs), "%s/%s", s_gd_cwd, path);
+  mutexUnlock(&s_gd_cwd_lock);
+  normalize_abs_path(abs);
+  char sb[1100];
+  const char *real = sandbox_path(abs, sb, sizeof(sb));
+  if (chdir(real) != 0) return -1;
+  mutexLock(&s_gd_cwd_lock);
+  snprintf(s_gd_cwd, sizeof(s_gd_cwd), "%s", abs);
+  mutexUnlock(&s_gd_cwd_lock);
+  return 0;
+}
+
 char *getcwd_fake(char *buf, size_t size) {
-  if (!buf) return strdup("/");
-  if (size < 2) { errno = ERANGE; return NULL; }
-  strcpy(buf, "/");
-  return buf;
+  mutexLock(&s_gd_cwd_lock);
+  const size_t l = strlen(s_gd_cwd);
+  char *ret = NULL;
+  if (!buf) {
+    ret = strdup(s_gd_cwd);
+  } else if (size < l + 1) {
+    errno = ERANGE;
+  } else {
+    memcpy(buf, s_gd_cwd, l + 1);
+    ret = buf;
+  }
+  mutexUnlock(&s_gd_cwd_lock);
+  return ret;
 }
 
 // ---------------------------------------------------------------------------
@@ -375,7 +442,48 @@ typedef struct {
   uint32_t magic; // 'ASET'
   FILE *f;
   int64_t len;
+  int pooled; // f belongs to the game.pck handle pool
 } FakeAsset;
+
+// The engine opens res://assets.sparsepck (= game.pck) once per resource it
+// loads: thousands of times per session. Opening a 56 MB file by path on the
+// SD (plus fseek/ftell for its size) every time dominated load times, so idle
+// game.pck handles are kept open and reused.
+#define PCK_POOL_MAX 8
+static FILE *s_pck_pool[PCK_POOL_MAX];
+static int s_pck_pool_n;
+static int64_t s_pck_len = -1;
+static Mutex s_pck_pool_lock;
+static int s_pck_logged;
+
+static FILE *pck_acquire(const char *path, int64_t *len) {
+  FILE *f = NULL;
+  mutexLock(&s_pck_pool_lock);
+  if (s_pck_pool_n > 0) f = s_pck_pool[--s_pck_pool_n];
+  mutexUnlock(&s_pck_pool_lock);
+  if (f) {
+    fseek(f, 0, SEEK_SET);
+    *len = s_pck_len;
+    return f;
+  }
+  f = fopen(path, "rb");
+  if (!f) return NULL;
+  setvbuf(f, NULL, _IOFBF, 64 * 1024);
+  if (s_pck_len < 0) {
+    fseek(f, 0, SEEK_END);
+    s_pck_len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+  }
+  *len = s_pck_len;
+  return f;
+}
+
+static void pck_release(FILE *f) {
+  mutexLock(&s_pck_pool_lock);
+  if (s_pck_pool_n < PCK_POOL_MAX) { s_pck_pool[s_pck_pool_n++] = f; f = NULL; }
+  mutexUnlock(&s_pck_pool_lock);
+  if (f) fclose(f);
+}
 
 #define FAKEASSET_MAGIC 0x41534554
 
@@ -430,7 +538,14 @@ void *AAssetManager_open_fake(void *mgr, const char *filename, int mode) {
     // and --main-pack is compiled out). A regular, non-sparse PCK loads fine
     // through it, so serve the payload's game.pck.
     snprintf(path, sizeof(path), "%s/game.pck", config.data_root);
-    debugPrintf("[assets] assets.sparsepck -> %s\n", path);
+    if (!s_pck_logged) { s_pck_logged = 1; debugPrintf("[assets] assets.sparsepck -> %s\n", path); }
+    int64_t len = 0;
+    FILE *pf = pck_acquire(path, &len);
+    if (!pf) { free(a); return NULL; }
+    a->f = pf;
+    a->len = len;
+    a->pooled = 1;
+    return a;
   } else {
     snprintf(path, sizeof(path), "%s/assets/%s", config.data_root, filename);
   }
@@ -471,7 +586,10 @@ int64_t AAsset_getLength64_fake(void *asset) { return AAsset_getLength_fake(asse
 void AAsset_close_fake(void *asset) {
   FakeAsset *a = asset;
   if (a && a->magic == FAKEASSET_MAGIC) {
-    if (a->f) fclose(a->f);
+    if (a->f) {
+      if (a->pooled) pck_release(a->f);
+      else fclose(a->f);
+    }
     a->magic = 0;
     free(a);
   }

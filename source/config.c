@@ -19,7 +19,8 @@
 #define CONFIG_VARS \
   CONFIG_VAR_INT(screen_width); \
   CONFIG_VAR_INT(screen_height); \
-  CONFIG_VAR_INT(boost);
+  CONFIG_VAR_INT(boost); \
+  CONFIG_VAR_INT(verbose);
 
 Config config;
 

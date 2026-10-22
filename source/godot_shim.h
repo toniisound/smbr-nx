@@ -49,6 +49,7 @@ int      __android_log_vprint_fake(int prio, const char *tag, const char *fmt, v
 void     perror_fake(const char *s);
 int      isatty_fake(int fd);
 char    *getcwd_fake(char *buf, size_t size);
+int      chdir_fake(const char *path);
 int      android_log_write_fake(int prio, const char *tag, const char *msg);
 
 // --- locale _l variants (locale argument ignored) ---
