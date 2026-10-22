@@ -37,6 +37,7 @@
 
 #include "config.h"
 #include "so_util.h"
+#include "prof.h"
 #include "util.h"
 #include "libc_shim.h"
 #include "godot_shim.h"
@@ -448,7 +449,84 @@ static void zstd_trace_end(void) {}
 // import table
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// profiled entry points (prof.h): listed first in the table, so they win over
+// the plain entries further down (first match resolves)
+// ---------------------------------------------------------------------------
+
+static FILE *p_fopen(const char *path, const char *mode) {
+  const uint64_t t = prof_now(); FILE *r = fopen_fake(path, mode); prof_add(PROF_OPEN, t); return r;
+}
+static int p_open(const char *path, int flags, ...) {
+  int mode = 0;
+  if (flags & O_CREAT) { va_list ap; va_start(ap, flags); mode = va_arg(ap, int); va_end(ap); }
+  const uint64_t t = prof_now(); int r = open_fake(path, flags, mode); prof_add(PROF_OPEN, t); return r;
+}
+static void *p_opendir(const char *path) {
+  const uint64_t t = prof_now(); void *r = opendir_fake(path); prof_add(PROF_OPEN, t); return r;
+}
+static void *p_AAssetManager_open(void *mgr, const char *name, int mode) {
+  const uint64_t t = prof_now(); void *r = AAssetManager_open_fake(mgr, name, mode); prof_add(PROF_OPEN, t); return r;
+}
+static int p_stat(const char *path, void *st) {
+  const uint64_t t = prof_now(); int r = stat_fake(path, st); prof_add(PROF_STAT, t); return r;
+}
+static int p_lstat(const char *path, void *st) {
+  const uint64_t t = prof_now(); int r = lstat_fake(path, st); prof_add(PROF_STAT, t); return r;
+}
+static int p_fstat(int fd, void *st) {
+  const uint64_t t = prof_now(); int r = fstat_fake(fd, st); prof_add(PROF_STAT, t); return r;
+}
+static int p_access(const char *path, int mode) {
+  const uint64_t t = prof_now(); int r = access_fake(path, mode); prof_add(PROF_STAT, t); return r;
+}
+static size_t p_fread(void *ptr, size_t size, size_t n, FILE *f) {
+  const uint64_t t = prof_now(); size_t r = fread_fake(ptr, size, n, f); prof_add(PROF_READ, t); return r;
+}
+static ssize_t p_read(int fd, void *dst, size_t count) {
+  const uint64_t t = prof_now(); ssize_t r = read_fake(fd, dst, count); prof_add(PROF_READ, t); return r;
+}
+static int p_AAsset_read(void *a, void *buf, size_t count) {
+  const uint64_t t = prof_now(); int r = AAsset_read_fake(a, buf, count); prof_add(PROF_READ, t); return r;
+}
+static void p_glCompileShader(GLuint sh) {
+  const uint64_t t = prof_now(); glCompileShader(sh); prof_add(PROF_SHADER, t);
+}
+static void p_glLinkProgram(GLuint pr) {
+  const uint64_t t = prof_now(); glLinkProgram(pr); prof_add(PROF_SHADER, t);
+}
+static void p_glProgramBinary(GLuint pr, GLenum fmt, const void *bin, GLsizei len) {
+  const uint64_t t = prof_now(); glProgramBinary(pr, fmt, bin, len); prof_add(PROF_SHADER, t);
+}
+static void p_glTexImage2D(GLenum tg, GLint lv, GLint ifmt, GLsizei w, GLsizei h, GLint b, GLenum fmt, GLenum ty, const void *px) {
+  const uint64_t t = prof_now(); glTexImage2D(tg, lv, ifmt, w, h, b, fmt, ty, px); prof_add(PROF_TEX, t);
+}
+static void p_glTexSubImage3D(GLenum tg, GLint lv, GLint x, GLint y, GLint z, GLsizei w, GLsizei h, GLsizei d, GLenum fmt, GLenum ty, const void *px) {
+  const uint64_t t = prof_now(); glTexSubImage3D(tg, lv, x, y, z, w, h, d, fmt, ty, px); prof_add(PROF_TEX, t);
+}
+static void p_glCompressedTexImage2D(GLenum tg, GLint lv, GLenum ifmt, GLsizei w, GLsizei h, GLint b, GLsizei sz, const void *data) {
+  const uint64_t t = prof_now(); glCompressedTexImage2D(tg, lv, ifmt, w, h, b, sz, data); prof_add(PROF_TEX, t);
+}
+
 static const DynLibFunction dynlib_functions[] = {
+  // --- profiled (prof.h); must stay first ---
+  { "fopen", (uintptr_t)&p_fopen },
+  { "open", (uintptr_t)&p_open },
+  { "opendir", (uintptr_t)&p_opendir },
+  { "AAssetManager_open", (uintptr_t)&p_AAssetManager_open },
+  { "stat", (uintptr_t)&p_stat },
+  { "lstat", (uintptr_t)&p_lstat },
+  { "fstat", (uintptr_t)&p_fstat },
+  { "access", (uintptr_t)&p_access },
+  { "fread", (uintptr_t)&p_fread },
+  { "read", (uintptr_t)&p_read },
+  { "AAsset_read", (uintptr_t)&p_AAsset_read },
+  { "glCompileShader", (uintptr_t)&p_glCompileShader },
+  { "glLinkProgram", (uintptr_t)&p_glLinkProgram },
+  { "glProgramBinary", (uintptr_t)&p_glProgramBinary },
+  { "glTexImage2D", (uintptr_t)&p_glTexImage2D },
+  { "glTexSubImage3D", (uintptr_t)&p_glTexSubImage3D },
+  { "glCompressedTexImage2D", (uintptr_t)&p_glCompressedTexImage2D },
   // --- OpenSLES (audio.c) ---
   { "slCreateEngine", (uintptr_t)&slCreateEngine },
   { "SL_IID_ENGINE", (uintptr_t)&SL_IID_ENGINE },

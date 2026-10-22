@@ -26,6 +26,7 @@
 #include "jni_fake.h"
 #include "patch.h"
 #include "libc_shim.h"
+#include "prof.h"
 
 static void *heap_so_base = NULL;
 static size_t heap_so_limit = 0;
@@ -535,11 +536,38 @@ static void game_thread_fn(void *arg) {
     if (announced_pad) poll_input();
 
     if (frames < 8) debugPrintf(">> step %d begin\n", frames + 1);
+    ProfSnap ps0;
+    prof_snapshot(&ps0);
     const u64 t0 = armGetSystemTick();
     e_step(fake_env, cls);
     if (frames < 8) debugPrintf(">> step %d done\n", frames + 1);
     eglSwapBuffers(s_dpy, s_surf);
     const u64 step_ms = armTicksToNs(armGetSystemTick() - t0) / 1000000ull;
+
+    { // 5 s windows: catches loads running on worker threads between short frames
+      static u64 win_t0;
+      static ProfSnap win_ps;
+      const u64 now = armGetSystemTick();
+      if (!win_t0) { win_t0 = now; prof_snapshot(&win_ps); }
+      const u64 win_ms = armTicksToNs(now - win_t0) / 1000000ull;
+      if (win_ms >= 5000) {
+        ProfSnap cur;
+        prof_snapshot(&cur);
+        u64 busy = 0;
+        for (int i = 0; i < PROF_N; i++) busy += cur.ns[i] - win_ps.ns[i];
+        if (busy > 200000000ull) prof_report("window", (unsigned long long)win_ms, &win_ps, &cur);
+        win_t0 = now;
+        win_ps = cur;
+      }
+    }
+
+    if (step_ms > 100) { // where did this stall go? (IO vs shader compile vs uploads)
+      ProfSnap ps1;
+      prof_snapshot(&ps1);
+      char what[48];
+      snprintf(what, sizeof(what), "stall frame %d:", frames);
+      prof_report(what, (unsigned long long)step_ms, &ps0, &ps1);
+    }
 
     if (step_ms > 50) { // stall (shader compile / load): burst the CPU
       calm_frames = 0;
