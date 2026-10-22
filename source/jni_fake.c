@@ -263,6 +263,10 @@ static const char *resolve_gd_path(int access_type, const char *p, char *buf, si
   } else if (access_type == ACCESS_USERDATA) {
     while (*p == '/') p++;
     snprintf(buf, sz, "%s/%s", config.save_root, p);
+  } else if (!strcmp(p, "apk.pck") || !strcmp(p, "/apk.pck")) {
+    // Godot's main-pack lookup on Android: exec path "apk" + ".pck"
+    // (ProjectSettings::_setup). Serve the payload's game.pck for it.
+    snprintf(buf, sz, "%s/game.pck", config.data_root);
   } else {
     // FILESYSTEM: absolute paths outside the app's dirs get the same
     // android-style sandbox rebase as the libc layer

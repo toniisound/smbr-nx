@@ -75,9 +75,11 @@ int debugPrintf(char *text, ...) {
     fflush(s_log); // flush each line so a crash still leaves a complete log
   }
 
-  va_start(list, text);
-  vprintf(text, list);
-  va_end(list);
+  if (g_log_stdout) {
+    va_start(list, text);
+    vprintf(text, list);
+    va_end(list);
+  }
 #endif
   return 0;
 }
@@ -94,6 +96,9 @@ void tls_setup_guard(void) {
 void cpu_boost(int on) {
   appletSetCpuBoostMode(on ? ApmCpuBoostMode_FastLoad : ApmCpuBoostMode_Normal);
 }
+
+int g_gfx_owned = 0;
+int g_log_stdout = 1;
 
 int ret0(void) { return 0; }
 

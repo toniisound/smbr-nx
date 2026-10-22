@@ -485,10 +485,10 @@ static void game_thread_fn(void *arg) {
   int nargs = 0;
   args[nargs++] = "--rendering-method";
   args[nargs++] = "gl_compatibility";
-  if (have_pck) {
-    args[nargs++] = "--main-pack";
-    args[nargs++] = pck_path;
-  }
+  // no --main-pack: official release templates are built with
+  // disable_path_overrides and abort on it. Instead the engine's own lookup
+  // opens "apk.pck" (exec path "apk" + ".pck") through the filesystem
+  // FileAccess, and jni_fake maps that name to <data_root>/game.pck.
 #if DEBUG_LOG
   args[nargs++] = "--verbose";
 #endif
@@ -667,6 +667,10 @@ static const char *exception_name(u32 desc) {
 }
 
 void __libnx_exception_handler(ThreadExceptionDump *ctx) {
+  // a fault inside this handler (or a second thread faulting) must not loop
+  static volatile int s_in_handler = 0;
+  if (__atomic_exchange_n(&s_in_handler, 1, __ATOMIC_SEQ_CST)) svcExitProcess();
+  g_log_stdout = 0; // log file only: stdout may be the console, unusable with EGL
   debugPrintf("\n!!!!! CRASH: %s (desc 0x%x)\n", exception_name(ctx->error_desc), ctx->error_desc);
   debugPrintf("[crash] bases: main()=%p godot=%p libc++=%p\n",
               (void *)&main, game_mod.load_virtbase, cxx_mod.load_virtbase);
@@ -728,6 +732,7 @@ int main(void) {
 
   if (egl_setup() != 0)
     fatal_error("Could not create the EGL/GLES3 context.");
+  g_gfx_owned = 1; // from here on the text console cannot draw (fatal_error uses the error applet)
 
   debugPrintf("== SMB1R Switch wrapper booting; build " __DATE__ " " __TIME__ "; data_root=%s ==\n", config.data_root);
   {

@@ -27,6 +27,20 @@ void fatal_error(const char *fmt, ...) {
     debugPrintf("!!!!! FATAL: %s\n", msg);
   }
 
+  if (g_gfx_owned) {
+    // EGL owns the window: show the message through the system error applet,
+    // which draws on its own layer regardless of our graphics state
+    char msg[512];
+    va_list l;
+    va_start(l, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, l);
+    va_end(l);
+    ErrorApplicationConfig c;
+    if (R_SUCCEEDED(errorApplicationCreate(&c, "Super Mario Bros. Remastered failed to start.", msg)))
+      errorApplicationShow(&c);
+    exit(1);
+  }
+
   PadState pad;
   padConfigureInput(1, HidNpadStyleSet_NpadStandard);
   padInitializeDefault(&pad);

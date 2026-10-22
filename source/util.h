@@ -27,6 +27,11 @@ int retm1(void);
 // svcSetProcessMemoryPermission)
 uint32_t own_process_handle(void);
 
+// 1 once the wrapper owns the display through EGL (text console unusable)
+extern int g_gfx_owned;
+// 0 = debugPrintf writes to the log file only (crash handler)
+extern int g_log_stdout;
+
 static inline void* armGetTlsRw(void) {
   void* ret;
   __asm__ ("mrs %x[data], s3_3_c13_c0_2" : [data] "=r" (ret));
