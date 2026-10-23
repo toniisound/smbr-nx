@@ -353,7 +353,11 @@ static int lstat_fake(const char *path, void *st) {
   struct stat in;
   char sb[640];
   path = sandbox_path(path, sb, sizeof(sb));
-  if (stat(path, &in) != 0) return -1; // no symlinks on fatfs: lstat == stat
+  if (fs_neg_lookup(path)) { errno = ENOENT; return -1; }
+  if (stat(path, &in) != 0) { // no symlinks on fatfs: lstat == stat
+    if (errno == ENOENT) fs_neg_add(path);
+    return -1;
+  }
   fill_bionic_stat(&in, st);
   return 0;
 }

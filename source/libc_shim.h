@@ -36,6 +36,13 @@ int pthread_sigmask_fake(int how, const void *set, void *oldset);
 
 int stat_fake(const char *path, void *st);
 
+// filesystem lookup caches (negative stat cache + missing-directory cache);
+// fs_cache_invalidate() must be called before anything that can create,
+// rename or delete files
+int  fs_neg_lookup(const char *path);
+void fs_neg_add(const char *path);
+void fs_cache_invalidate(void);
+
 // locale (ignore the locale arg, use the C versions)
 void *newlocale_fake(int mask, const char *locale, void *base);
 void freelocale_fake(void *loc);

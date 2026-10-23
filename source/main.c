@@ -28,6 +28,7 @@
 #include "libc_shim.h"
 #include "prof.h"
 #include "loading.h"
+#include "sampler.h"
 
 static void *heap_so_base = NULL;
 static size_t heap_so_limit = 0;
@@ -544,6 +545,7 @@ static void game_thread_fn(void *arg) {
     ProfSnap ps0;
     prof_snapshot(&ps0);
     const u64 t0 = armGetSystemTick();
+    sampler_step_begin();
     e_step(fake_env, cls);
     if (frames < 8) debugPrintf(">> step %d done\n", frames + 1);
     // keep the boot loading screen up: the engine's first steps (setup2 /
@@ -551,6 +553,7 @@ static void game_thread_fn(void *arg) {
     // so their frames are not presented
     if (frames >= BOOT_HIDDEN_STEPS) eglSwapBuffers(s_dpy, s_surf);
     const u64 step_ms = armTicksToNs(armGetSystemTick() - t0) / 1000000ull;
+    sampler_step_end(frames, (unsigned long long)step_ms);
 
     { // 5 s windows: catches loads running on worker threads between short frames
       static u64 win_t0;
@@ -850,6 +853,9 @@ int main(void) {
   if (R_FAILED(threadCreate(&s_game_thread, game_thread_fn, NULL, NULL, 8 * 1024 * 1024, 0x2C, -2)))
     fatal_error("Could not create the game thread.");
   threadStart(&s_game_thread);
+#if DEBUG_LOG
+  sampler_start(&s_game_thread); // CPU sampling of long steps -> [sample] lines
+#endif
 
   int last_frames = -1;
   int stall_ms = 0;

@@ -129,7 +129,9 @@ int stat_fake(const char *path, void *st) {
   path = sandbox_path(path, sb, sizeof(sb));
   char buf[640];
   const char *p = obb_resolve(path, buf, sizeof(buf));
+  if (fs_neg_lookup(p)) { errno = ENOENT; return -1; }
   int rc = stat(p, &in);
+  if (rc != 0 && errno == ENOENT) fs_neg_add(p);
 #if VERBOSE_IO
   debugPrintf("stat(\"%s\"%s) -> %d\n", path, p != path ? " [obb->main.obb]" : "", rc);
 #endif
@@ -379,6 +381,8 @@ int open_fake(const char *path, int flags, ...) {
     return URANDOM_FD;
   char sb[640];
   path = sandbox_path(path, sb, sizeof(sb));
+  if ((flags & O_ACCMODE) != O_RDONLY || (flags & (O_CREAT | O_TRUNC)))
+    fs_cache_invalidate(); // may create/modify a file
   char buf[640];
   const char *p = ((flags & O_ACCMODE) == O_RDONLY) ? obb_resolve(path, buf, sizeof(buf)) : path;
   int fd = open(p, flags, mode);
@@ -402,7 +406,10 @@ int access_fake(const char *path, int mode) {
   path = sandbox_path(path, sb, sizeof(sb));
   char buf[640];
   const char *p = obb_resolve(path, buf, sizeof(buf));
-  return access(p, mode);
+  if (fs_neg_lookup(p)) { errno = ENOENT; return -1; }
+  const int rc = access(p, mode);
+  if (rc != 0 && errno == ENOENT) fs_neg_add(p);
+  return rc;
 }
 
 // ---------------------------------------------------------------------------
@@ -599,6 +606,63 @@ static struct { char dir[256]; int exists; } s_dircache[DIRCACHE_N];
 static int s_dircache_n;
 static Mutex s_dircache_lock; // zero-initialized == unlocked (libnx)
 
+// Negative stat cache: paths known NOT to exist. SMB1R's resource-pack system
+// asks "is there an override for this sprite?" thousands of times per scene
+// load (FileAccess.file_exists -> stat), almost always answered "no", and each
+// miss is an SD directory walk. Both this and the directory cache above are
+// dropped wholesale by fs_cache_invalidate(), which every shim that can create,
+// rename or delete files calls first, so a cached "missing" is never stale.
+#define NEGCACHE_N 4096
+static char *s_neg[NEGCACHE_N];
+static int s_neg_n;
+static Mutex s_neg_lock;
+
+static u32 neg_hash(const char *p) {
+  u32 h = 2166136261u;
+  while (*p) { h ^= (u8)*p++; h *= 16777619u; }
+  return h;
+}
+
+int fs_neg_lookup(const char *path) {
+  if (!path) return 0;
+  const u32 h = neg_hash(path) & (NEGCACHE_N - 1);
+  int hit = 0;
+  mutexLock(&s_neg_lock);
+  for (int i = 0; i < NEGCACHE_N; i++) {
+    const char *e = s_neg[(h + i) & (NEGCACHE_N - 1)];
+    if (!e) break;
+    if (!strcmp(e, path)) { hit = 1; break; }
+  }
+  mutexUnlock(&s_neg_lock);
+  return hit;
+}
+
+void fs_neg_add(const char *path) {
+  if (!path) return;
+  mutexLock(&s_neg_lock);
+  if (s_neg_n >= NEGCACHE_N * 3 / 4) { // keep probing short: start over
+    for (int i = 0; i < NEGCACHE_N; i++) { free(s_neg[i]); s_neg[i] = NULL; }
+    s_neg_n = 0;
+  }
+  const u32 h = neg_hash(path) & (NEGCACHE_N - 1);
+  for (int i = 0; i < NEGCACHE_N; i++) {
+    char **slot = &s_neg[(h + i) & (NEGCACHE_N - 1)];
+    if (!*slot) { *slot = strdup(path); if (*slot) s_neg_n++; break; }
+    if (!strcmp(*slot, path)) break;
+  }
+  mutexUnlock(&s_neg_lock);
+}
+
+void fs_cache_invalidate(void) {
+  mutexLock(&s_neg_lock);
+  for (int i = 0; i < NEGCACHE_N; i++) { free(s_neg[i]); s_neg[i] = NULL; }
+  s_neg_n = 0;
+  mutexUnlock(&s_neg_lock);
+  mutexLock(&s_dircache_lock);
+  s_dircache_n = 0;
+  mutexUnlock(&s_dircache_lock);
+}
+
 static int dir_exists_cached(const char *path) {
   const char *slash = strrchr(path, '/');
   if (!slash || slash == path) return 1; // no dir / root -> treat as existing
@@ -628,6 +692,8 @@ FILE *fopen_fake(const char *path, const char *mode) {
     return (FILE *)&urandom_marker;
   char sb[640];
   path = sandbox_path(path, sb, sizeof(sb));
+  if (strpbrk(mode, "wa+"))
+    fs_cache_invalidate(); // may create a file
   // read probes into a non-existent directory can't succeed -> skip the SD hit
   if (strchr(mode, 'r') && !dir_exists_cached(path)) {
     g_fopen_calls++; g_fopen_fail++; io_maybe_log();

@@ -180,6 +180,7 @@ char *realpath_fake(const char *path, char *resolved) {
 }
 
 int mkstemp_fake(char *tmpl) {
+  fs_cache_invalidate();
   if (!tmpl) { errno = EINVAL; return -1; }
   size_t l = strlen(tmpl);
   if (l < 6) { errno = EINVAL; return -1; }
@@ -195,22 +196,27 @@ int mkstemp_fake(char *tmpl) {
 
 // sandboxed variants of the direct filesystem mutators
 int mkdir_fake(const char *path, int mode) {
+  fs_cache_invalidate();
   char sb[640];
   return mkdir(sandbox_path(path, sb, sizeof(sb)), (mode_t)mode);
 }
 int unlink_fake(const char *path) {
+  fs_cache_invalidate();
   char sb[640];
   return unlink(sandbox_path(path, sb, sizeof(sb)));
 }
 int rmdir_fake(const char *path) {
+  fs_cache_invalidate();
   char sb[640];
   return rmdir(sandbox_path(path, sb, sizeof(sb)));
 }
 int rename_fake(const char *from, const char *to) {
+  fs_cache_invalidate();
   char s1[640], s2[640];
   return rename(sandbox_path(from, s1, sizeof(s1)), sandbox_path(to, s2, sizeof(s2)));
 }
 int remove_fake(const char *path) {
+  fs_cache_invalidate();
   char sb[640];
   return remove(sandbox_path(path, sb, sizeof(sb)));
 }
@@ -226,6 +232,7 @@ int openat_fake(int dirfd, const char *path, int flags, ...) {
   return open(path, flags, mode);
 }
 int unlinkat_fake(int dirfd, const char *path, int flags) {
+  fs_cache_invalidate();
   if (dirfd != BIONIC_AT_FDCWD && path && path[0] != '/') { errno = ENOSYS; return -1; }
   if (flags) return rmdir_fake(path);
   return unlink_fake(path);
@@ -278,6 +285,7 @@ int statvfs_fake(const char *path, void *buf) {
 }
 
 int truncate_fake(const char *path, int64_t len) {
+  fs_cache_invalidate();
   int fd = open(path, O_WRONLY);
   if (fd < 0) return -1;
   int rc = ftruncate(fd, (off_t)len);

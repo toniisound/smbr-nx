@@ -389,6 +389,7 @@ static int gd_file_open(const char *path, int mode) {
   }
   char buf[512];
   resolve_gd_path(ACCESS_FILESYSTEM, path, buf, sizeof(buf));
+  if (mode != GD_READ) fs_cache_invalidate(); // may create a file
 
   FILE *f = NULL;
   int64_t known_size = -1;
@@ -520,6 +521,7 @@ static juint call_boolean(void *recv, FakeID *id, va_list va) {
     return (stat(resolve_gd_path(ACCESS_FILESYSTEM, p, buf, sizeof(buf)), &st) == 0 && !S_ISDIR(st.st_mode)) ? 1 : 0;
   }
   if (!strcmp(name, "makeDir")) {
+    fs_cache_invalidate();
     int at = va_arg(va, int);
     const char *p = obj_str(va_arg(va, void *));
     char buf[512];
@@ -529,6 +531,7 @@ static juint call_boolean(void *recv, FakeID *id, va_list va) {
     return (stat(buf, &st) == 0 && S_ISDIR(st.st_mode)) ? 1 : 0; // already exists
   }
   if (!strcmp(name, "rename")) {
+    fs_cache_invalidate();
     int at = va_arg(va, int);
     const char *from = obj_str(va_arg(va, void *));
     const char *to = obj_str(va_arg(va, void *));
@@ -538,6 +541,7 @@ static juint call_boolean(void *recv, FakeID *id, va_list va) {
     return rename(b1, b2) == 0 ? 1 : 0;
   }
   if (!strcmp(name, "remove")) {
+    fs_cache_invalidate();
     int at = va_arg(va, int);
     const char *p = obj_str(va_arg(va, void *));
     char buf[512];
