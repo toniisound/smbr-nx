@@ -23,6 +23,7 @@
 #define TOP_N             25
 
 extern so_module game_mod;
+extern char __start__[]; // libnx linker script: offset 0 of this NRO's image
 
 static Thread s_thread;
 static Thread *s_target;
@@ -122,8 +123,11 @@ static void log_top(const char *kind, int use_self, int total) {
     if (best < 0 || !bestv) break;
     used[best] = 1;
     const u64 a = s_buckets[best].addr;
+    const u64 nro = (u64)__start__;
     if (a >= base && a < base + game_mod.load_size)
       debugPrintf("[sample] %s %3u%%  godot+0x%llx\n", kind, bestv * 100u / (u32)total, (unsigned long long)(a - base));
+    else if (a >= nro && a < nro + (64ull << 20))
+      debugPrintf("[sample] %s %3u%%  smbr+0x%llx\n", kind, bestv * 100u / (u32)total, (unsigned long long)(a - nro));
     else
       debugPrintf("[sample] %s %3u%%  0x%llx\n", kind, bestv * 100u / (u32)total, (unsigned long long)a);
   }

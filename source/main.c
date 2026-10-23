@@ -624,14 +624,15 @@ int main(void); // forward-declared: the watchdog uses it as a code anchor
 static void log_code_addr(const char *tag, uint64_t a) {
   // anchor the wrapper's code region on a known function (module base symbols
   // resolve to 0 under hbl); offsets are then relative to main()
-  const uint64_t wrap_base = ((uint64_t)&main) & ~0xFFFFFull;
+  extern char __start__[]; // libnx linker script: offset 0 of this NRO's image
+  const uint64_t wrap_base = (uint64_t)__start__;
   const uint64_t gd_base = (uint64_t)game_mod.load_virtbase;
   const uint64_t cxx_base = (uint64_t)cxx_mod.load_virtbase;
   if (a >= gd_base && a < gd_base + game_mod.load_size)
     debugPrintf("[watchdog]   %s %016llx  godot+0x%llx\n", tag, (unsigned long long)a, (unsigned long long)(a - gd_base));
   else if (a >= cxx_base && a < cxx_base + cxx_mod.load_size)
     debugPrintf("[watchdog]   %s %016llx  libc+++0x%llx\n", tag, (unsigned long long)a, (unsigned long long)(a - cxx_base));
-  else if (a >= wrap_base && a < wrap_base + 0x800000)
+  else if (a >= wrap_base && a < wrap_base + (64ull << 20))
     debugPrintf("[watchdog]   %s %016llx  smbr+0x%llx\n", tag, (unsigned long long)a, (unsigned long long)(a - wrap_base));
   else
     debugPrintf("[watchdog]   %s %016llx\n", tag, (unsigned long long)a);
