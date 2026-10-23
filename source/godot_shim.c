@@ -448,49 +448,97 @@ int iswxdigit_l_fake(int c, void *loc) { (void)loc; return iswxdigit(c); }
 
 typedef struct {
   uint32_t magic; // 'ASET'
-  FILE *f;
+  FILE *f;        // loose assets/ file (or the game.pck fallback)
   int64_t len;
-  int pooled; // f belongs to the game.pck handle pool
+  int pck;        // served from the in-memory game.pck image
+  int64_t pos;    // position for pck assets
 } FakeAsset;
 
-// The engine opens res://assets.sparsepck (= game.pck) once per resource it
-// loads: thousands of times per session. Opening a 56 MB file by path on the
-// SD (plus fseek/ftell for its size) every time dominated load times, so idle
-// game.pck handles are kept open and reused.
-#define PCK_POOL_MAX 8
-static FILE *s_pck_pool[PCK_POOL_MAX];
-static int s_pck_pool_n;
-static int64_t s_pck_len = -1;
-static Mutex s_pck_pool_lock;
-static int s_pck_logged;
+// ---------------------------------------------------------------------------
+// game.pck image. The engine opens res://assets.sparsepck (= game.pck) once
+// per resource and seeks to that resource inside it before every read. Through
+// stdio each of those seeks threw away the 64 KB buffer and re-read a whole
+// block from the SD (newlib fseek refills on every jump), which the sampling
+// profiler showed as 35-55% of every scene load. Instead the pack is mirrored
+// in RAM lazily: it is split into 128 KB blocks, each read from the SD once,
+// the first time any resource touches it; afterwards seeks are free and reads
+// are memcpy. Worst case this costs the pack's size in RAM (~56 MB).
+// ---------------------------------------------------------------------------
 
-static FILE *pck_acquire(const char *path, int64_t *len) {
-  FILE *f = NULL;
-  mutexLock(&s_pck_pool_lock);
-  if (s_pck_pool_n > 0) f = s_pck_pool[--s_pck_pool_n];
-  mutexUnlock(&s_pck_pool_lock);
-  if (f) {
-    fseek(f, 0, SEEK_SET);
-    *len = s_pck_len;
-    return f;
+#define PCK_BLOCK (128 * 1024)
+
+static Mutex s_pck_lock;
+static int s_pck_state;     // 0 = not opened yet, 1 = in-memory image, -1 = stdio fallback
+static int s_pck_fd = -1;
+static uint8_t *s_pck_mem;
+static uint8_t *s_pck_filled; // one flag per block
+static int64_t s_pck_len = -1;
+static char s_pck_path[300];
+
+static int pck_init_locked(void) {
+  if (s_pck_state) return s_pck_state;
+  snprintf(s_pck_path, sizeof(s_pck_path), "%s/game.pck", config.data_root);
+  struct stat st;
+  if (stat(s_pck_path, &st) != 0) { s_pck_state = -1; return -1; }
+  s_pck_len = st.st_size;
+  s_pck_fd = open(s_pck_path, O_RDONLY);
+  const size_t nblocks = (size_t)((s_pck_len + PCK_BLOCK - 1) / PCK_BLOCK);
+  s_pck_mem = (s_pck_fd >= 0 && s_pck_len > 0) ? malloc((size_t)s_pck_len) : NULL;
+  s_pck_filled = s_pck_mem ? calloc(nblocks, 1) : NULL;
+  if (!s_pck_mem || !s_pck_filled) {
+    free(s_pck_mem); s_pck_mem = NULL;
+    free(s_pck_filled); s_pck_filled = NULL;
+    if (s_pck_fd >= 0) { close(s_pck_fd); s_pck_fd = -1; }
+    s_pck_state = -1;
+    debugPrintf("[assets] game.pck: no RAM for the image, using stdio\n");
+    return -1;
   }
-  f = fopen(path, "rb");
-  if (!f) return NULL;
-  setvbuf(f, NULL, _IOFBF, 64 * 1024);
-  if (s_pck_len < 0) {
-    fseek(f, 0, SEEK_END);
-    s_pck_len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-  }
-  *len = s_pck_len;
-  return f;
+  s_pck_state = 1;
+  debugPrintf("[assets] assets.sparsepck -> %s (%lld KB, in-memory image, %u blocks)\n",
+              s_pck_path, (long long)(s_pck_len >> 10), (unsigned)nblocks);
+  return 1;
 }
 
-static void pck_release(FILE *f) {
-  mutexLock(&s_pck_pool_lock);
-  if (s_pck_pool_n < PCK_POOL_MAX) { s_pck_pool[s_pck_pool_n++] = f; f = NULL; }
-  mutexUnlock(&s_pck_pool_lock);
-  if (f) fclose(f);
+// make sure block `b` is loaded; returns 0 on success
+static int pck_ensure_block(size_t b) {
+  if (__atomic_load_n(&s_pck_filled[b], __ATOMIC_ACQUIRE)) return 0;
+  mutexLock(&s_pck_lock);
+  int rc = 0;
+  if (!s_pck_filled[b]) {
+    const int64_t off = (int64_t)b * PCK_BLOCK;
+    int64_t want = s_pck_len - off;
+    if (want > PCK_BLOCK) want = PCK_BLOCK;
+    if (lseek(s_pck_fd, (off_t)off, SEEK_SET) != (off_t)off) {
+      rc = -1;
+    } else {
+      int64_t got = 0;
+      while (got < want) {
+        const ssize_t r = read(s_pck_fd, s_pck_mem + off + got, (size_t)(want - got));
+        if (r <= 0) { rc = -1; break; }
+        got += r;
+      }
+    }
+    if (rc == 0) __atomic_store_n(&s_pck_filled[b], 1, __ATOMIC_RELEASE);
+  }
+  mutexUnlock(&s_pck_lock);
+  return rc;
+}
+
+static int pck_read(FakeAsset *a, void *buf, size_t count) {
+  if (a->pos >= a->len) return 0;
+  if ((int64_t)count > a->len - a->pos) count = (size_t)(a->len - a->pos);
+  size_t done = 0;
+  while (done < count) {
+    const int64_t at = a->pos + (int64_t)done;
+    const size_t b = (size_t)(at / PCK_BLOCK);
+    if (pck_ensure_block(b) != 0) break;
+    size_t n = (size_t)((int64_t)(b + 1) * PCK_BLOCK - at);
+    if (n > count - done) n = count - done;
+    memcpy((uint8_t *)buf + done, s_pck_mem + at, n);
+    done += n;
+  }
+  a->pos += (int64_t)done;
+  return (int)done;
 }
 
 #define FAKEASSET_MAGIC 0x41534554
@@ -521,19 +569,32 @@ static int is_blanked_asset(const char *filename) {
   return 0;
 }
 
+// Loose assets/ folder (legacy APK layout). With a game.pck payload it doesn't
+// exist, yet the engine still probes it for every resource it loads
+// (ResourceLoader::_path_remap checks for "<path>.remap" / ".import"), each
+// probe a failed fopen on the SD. Check the folder once.
+static int s_assets_dir = -1;
+
+static int assets_dir_exists(void) {
+  if (s_assets_dir < 0) {
+    char d[300];
+    snprintf(d, sizeof(d), "%s/assets", config.data_root);
+    struct stat st;
+    s_assets_dir = (stat(d, &st) == 0 && S_ISDIR(st.st_mode));
+  }
+  return s_assets_dir;
+}
+
 void *AAssetManager_open_fake(void *mgr, const char *filename, int mode) {
   (void)mgr; (void)mode;
   if (!filename) return NULL;
   while (*filename == '/') filename++;
 
-  FakeAsset *a = calloc(1, sizeof(*a));
-  if (!a) return NULL;
-  a->magic = FAKEASSET_MAGIC;
-
   if (is_blanked_asset(filename)) {
+    FakeAsset *a = calloc(1, sizeof(*a));
+    if (!a) return NULL;
+    a->magic = FAKEASSET_MAGIC;
     debugPrintf("[assets] %s -> blanked (forced empty)\n", filename);
-    a->f = NULL;
-    a->len = 0;
     return a;
   }
 
@@ -545,23 +606,30 @@ void *AAssetManager_open_fake(void *mgr, const char *filename, int mode) {
     // lookup is skipped there because _execpath is still empty at that point,
     // and --main-pack is compiled out). A regular, non-sparse PCK loads fine
     // through it, so serve the payload's game.pck.
-    snprintf(path, sizeof(path), "%s/game.pck", config.data_root);
-    if (!s_pck_logged) { s_pck_logged = 1; debugPrintf("[assets] assets.sparsepck -> %s\n", path); }
-    int64_t len = 0;
-    FILE *pf = pck_acquire(path, &len);
-    if (!pf) { free(a); return NULL; }
-    a->f = pf;
-    a->len = len;
-    a->pooled = 1;
-    return a;
+    mutexLock(&s_pck_lock);
+    const int state = pck_init_locked();
+    mutexUnlock(&s_pck_lock);
+    if (state == 1) {
+      FakeAsset *a = calloc(1, sizeof(*a));
+      if (!a) return NULL;
+      a->magic = FAKEASSET_MAGIC;
+      a->pck = 1;
+      a->len = s_pck_len;
+      return a;
+    }
+    snprintf(path, sizeof(path), "%s/game.pck", config.data_root); // stdio fallback
   } else {
+    if (!assets_dir_exists()) return NULL;
     snprintf(path, sizeof(path), "%s/assets/%s", config.data_root, filename);
   }
   FILE *f = fopen(path, "rb");
 #if VERBOSE_IO
   debugPrintf("AAssetManager_open(\"%s\") -> %p\n", filename, (void *)f);
 #endif
-  if (!f) { free(a); return NULL; }
+  if (!f) return NULL;
+  FakeAsset *a = calloc(1, sizeof(*a));
+  if (!a) { fclose(f); return NULL; }
+  a->magic = FAKEASSET_MAGIC;
   setvbuf(f, NULL, _IOFBF, 64 * 1024);
   a->f = f;
   fseek(f, 0, SEEK_END);
@@ -573,6 +641,7 @@ void *AAssetManager_open_fake(void *mgr, const char *filename, int mode) {
 int AAsset_read_fake(void *asset, void *buf, size_t count) {
   FakeAsset *a = asset;
   if (!a || a->magic != FAKEASSET_MAGIC || !buf) return -1;
+  if (a->pck) return pck_read(a, buf, count);
   if (!a->f) return 0; // blanked (forced-empty) asset: always EOF
   return (int)fread(buf, 1, count, a->f);
 }
@@ -580,6 +649,12 @@ int AAsset_read_fake(void *asset, void *buf, size_t count) {
 int64_t AAsset_seek_fake(void *asset, int64_t offset, int whence) {
   FakeAsset *a = asset;
   if (!a || a->magic != FAKEASSET_MAGIC) return -1;
+  if (a->pck) {
+    int64_t np = (whence == SEEK_SET) ? offset : (whence == SEEK_CUR) ? a->pos + offset : a->len + offset;
+    if (np < 0) return -1;
+    a->pos = np; // past-the-end is allowed; reads then return 0
+    return a->pos;
+  }
   if (!a->f) return 0; // blanked (forced-empty) asset: only position 0 exists
   if (fseek(a->f, (long)offset, whence) != 0) return -1;
   return ftell(a->f);
@@ -594,10 +669,7 @@ int64_t AAsset_getLength64_fake(void *asset) { return AAsset_getLength_fake(asse
 void AAsset_close_fake(void *asset) {
   FakeAsset *a = asset;
   if (a && a->magic == FAKEASSET_MAGIC) {
-    if (a->f) {
-      if (a->pooled) pck_release(a->f);
-      else fclose(a->f);
-    }
+    if (a->f) fclose(a->f);
     a->magic = 0;
     free(a);
   }
