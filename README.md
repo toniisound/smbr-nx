@@ -17,6 +17,14 @@ updating the port to a new upstream version is a single command.
 
 ### How to install
 
+1. Download `smbr_nx.zip` from the [Releases](../../releases) page.
+2. Extract it to the root of your SD card (it creates `/switch/smbr_nx/`).
+3. Copy your own Super Mario Bros. (NES) ROM to `/switch/smbr_nx/save/baserom.nes`.
+4. Launch it from hbmenu through a **title override** (hold R while opening a game).
+
+The first launch extracts the game's graphics from your ROM and compiles the
+shaders, so it takes a while; later launches are much faster.
+
 On your SD card, the app lives in `/switch/smbr_nx/`:
 
 ```
@@ -35,6 +43,13 @@ forwarder, so the port runs with full RAM. It will not work in applet/album mode
 Saves and `config.txt` live in `/switch/smbr_nx/save/`.
 
 ### How to build
+
+Every push to GitHub builds everything through GitHub Actions
+(`.github/workflows/build.yml`): `smbr.nro`, the game payload, and the
+ready-to-copy `smbr_nx.zip`, available as workflow artifacts. Pushing a tag
+such as `v1.1.0` also publishes that zip as a release.
+
+To build locally instead:
 
 #### 1. The game payload (`game.pck` + engine `.so` files)
 
@@ -83,11 +98,17 @@ make
 
 ### Legal
 
-This project has no affiliation with Nintendo. It contains no game code or
-assets — build the payload yourself from the upstream sources with
-`tools/build_payload.sh`, and supply your own legally-dumped NES ROM. The game
-itself is GPL-3.0 (see the upstream project's LICENSE); the Godot engine is MIT;
-this wrapper's own source is MIT, see LICENSE.
+This project has no affiliation with Nintendo, and **no Nintendo ROM or
+Nintendo assets are included or distributed**: the game extracts its graphics
+from the ROM you supply, which must be your own legal dump.
+
+Release zips contain `game.pck`, built from the GPL-3.0 sources of
+[Super Mario Bros. Remastered](https://github.com/JHDev2006/Super-Mario-Bros.-Remastered-Public)
+(see its LICENSE) plus the changes in `tools/smb1r-switch.patch`; you can rebuild
+it from source with `tools/build_payload.sh`. They also contain the unmodified
+Godot Engine Android binaries (`libgodot_android.so`, `libc++_shared.so`), MIT
+licensed (Godot) and Apache-2.0 with LLVM exception (libc++). This wrapper's own
+source is MIT, see LICENSE.
 
 ### Donations
 

@@ -1,12 +1,21 @@
-name: Build smbr.nro
+name: Build
+
+# Every push builds smbr.nro and the game payload and uploads a ready-to-copy
+# SD card zip as a workflow artifact. Pushing a tag (e.g. v1.1.0) also
+# publishes that zip as a GitHub Release.
 
 on:
   push:
+    branches: ["**"]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write # create releases on tags
+
 jobs:
-  build:
+  nro:
     runs-on: ubuntu-latest
     container: devkitpro/devkita64:latest
     steps:
@@ -15,11 +24,60 @@ jobs:
       - name: Install Switch libraries
         run: dkp-pacman -S --noconfirm --needed switch-mesa switch-libdrm_nouveau switch-zlib
 
-      - name: Build
+      - name: Build smbr.nro
         run: make -j"$(nproc)"
 
-      - name: Upload smbr.nro
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: smbr-nro
           path: smbr.nro
+
+  payload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # game.pck exported from the latest stable upstream release with the
+      # Switch patch, plus Godot's official arm64 engine .so files
+      - name: Build game payload
+        run: tools/build_payload.sh "" payload/smbr_nx
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smbr-payload
+          path: payload/smbr_nx/
+
+  package:
+    needs: [nro, payload]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: smbr-nro
+          path: sd/switch/smbr_nx
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: smbr-payload
+          path: sd/switch/smbr_nx
+
+      - name: Assemble SD card layout
+        run: |
+          mkdir -p sd/switch/smbr_nx/save
+          cat > sd/switch/smbr_nx/save/PUT_YOUR_ROM_HERE.txt <<'EOF'
+          Copy your own legally dumped "Super Mario Bros." (NES, World) ROM
+          into this folder as baserom.nes. The ROM is not included.
+          EOF
+          cd sd && zip -r9 ../smbr_nx.zip switch
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smbr_nx-sd
+          path: smbr_nx.zip
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: smbr_nx.zip
+          generate_release_notes: true
