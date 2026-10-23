@@ -27,6 +27,7 @@
 #include "patch.h"
 #include "libc_shim.h"
 #include "prof.h"
+#include "loading.h"
 
 static void *heap_so_base = NULL;
 static size_t heap_so_limit = 0;
@@ -407,6 +408,10 @@ static void poll_input(void) {
 // game thread (owns the EGL context and the whole GodotLib lifecycle)
 // ---------------------------------------------------------------------------
 
+// engine steps whose frames are not presented, so the wrapper's boot
+// "LOADING..." screen stays visible (step 1: renderer init; step 3: autoloads)
+#define BOOT_HIDDEN_STEPS 3
+
 static Thread s_game_thread;
 static volatile int s_game_running = 1;
 static volatile int s_focused = 1;
@@ -541,7 +546,10 @@ static void game_thread_fn(void *arg) {
     const u64 t0 = armGetSystemTick();
     e_step(fake_env, cls);
     if (frames < 8) debugPrintf(">> step %d done\n", frames + 1);
-    eglSwapBuffers(s_dpy, s_surf);
+    // keep the boot loading screen up: the engine's first steps (setup2 /
+    // renderer init, then the game's autoloads) render nothing worth showing,
+    // so their frames are not presented
+    if (frames >= BOOT_HIDDEN_STEPS) eglSwapBuffers(s_dpy, s_surf);
     const u64 step_ms = armTicksToNs(armGetSystemTick() - t0) / 1000000ull;
 
     { // 5 s windows: catches loads running on worker threads between short frames
@@ -768,6 +776,15 @@ int main(void) {
   if (egl_setup() != 0)
     fatal_error("Could not create the EGL/GLES3 context.");
   g_gfx_owned = 1; // from here on the text console cannot draw (fatal_error uses the error applet)
+
+  // boot "LOADING..." screen: present it now, on the main thread, then hand
+  // the context over (the game thread makes it current). It stays on screen
+  // while the .so files load and through the engine's first steps, whose
+  // frames are not presented (see BOOT_HIDDEN_STEPS).
+  eglMakeCurrent(s_dpy, s_surf, s_surf, s_ctx);
+  loading_screen_draw(screen_width, screen_height);
+  eglSwapBuffers(s_dpy, s_surf);
+  eglMakeCurrent(s_dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
   debugPrintf("== SMB1R Switch wrapper booting; build " __DATE__ " " __TIME__ "; data_root=%s ==\n", config.data_root);
   {

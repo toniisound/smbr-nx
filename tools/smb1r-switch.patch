@@ -23,6 +23,62 @@ index f09eec5a..4da378ff 100644
  var rpc = null
  
  class DiscordRPCStub:
+diff --git a/Scripts/Classes/Singletons/Global.gd b/Scripts/Classes/Singletons/Global.gd
+index 25d0cb30..56a47838 100644
+--- a/Scripts/Classes/Singletons/Global.gd
++++ b/Scripts/Classes/Singletons/Global.gd
+@@ -227,6 +227,7 @@ func _ready() -> void:
+ 	check_for_rom()
+ 	load_default_translations()
+ 	level_theme_changed.connect(load_default_translations)
++	_setup_loading_label()
+ 
+ func update_theme() -> void:
+ 	theme_override = ""
+@@ -495,6 +496,22 @@ func clear_saved_values() -> void:
+ 	lives = 3
+ 	player_power_states = "0000"
+ 
++# Switch: "LOADING..." over the black transition block while the next scene
++# loads (scene loads block the main thread for a while on the console), so the
++# game doesn't look frozen. Added from code to keep the scene file untouched.
++var loading_label: Label = null
++
++func _setup_loading_label() -> void:
++	loading_label = Label.new()
++	loading_label.name = "LoadingLabel"
++	loading_label.text = "LOADING..."
++	loading_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
++	loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
++	loading_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
++	loading_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
++	loading_label.hide()
++	$Transition.add_child(loading_label) # last child: drawn above TransitionBlock
++
+ func transition_to_scene(scene_path = "") -> void:
+ 	fade_transition = bool(Settings.file.visuals.transition_animation)
+ 	if transitioning_scene:
+@@ -505,10 +522,12 @@ func transition_to_scene(scene_path = "") -> void:
+ 		freeze_screen()
+ 		$Transition/AnimationPlayer.play("FadeIn")
+ 		await $Transition/AnimationPlayer.animation_finished
++		if loading_label: loading_label.show()
+ 		await get_tree().create_timer(0.1, true).timeout
+ 	else:
+ 		%TransitionBlock.modulate.a = 1
+ 		$Transition.show()
++		if loading_label: loading_label.show()
+ 		await get_tree().create_timer(0.1, true).timeout
+ 	if scene_path == null:
+ 		scene_path = "res://Scenes/Levels/CustomLevelBase.tscn"
+@@ -517,6 +536,7 @@ func transition_to_scene(scene_path = "") -> void:
+ 	elif scene_path is PackedScene:
+ 		get_tree().change_scene_to_packed(scene_path)
+ 	await get_tree().scene_changed
++	if loading_label: loading_label.hide()
+ 	await get_tree().create_timer(0.15, true).timeout
+ 	if fade_transition:
+ 		close_freeze()
 diff --git a/Scripts/Parts/ResourcePackLoader.gd b/Scripts/Parts/ResourcePackLoader.gd
 index 10ea6d16..496d7fe8 100644
 --- a/Scripts/Parts/ResourcePackLoader.gd
