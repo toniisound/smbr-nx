@@ -38,6 +38,7 @@
 #include "config.h"
 #include "so_util.h"
 #include "prof.h"
+#include "fastalloc.h"
 #include "util.h"
 #include "libc_shim.h"
 #include "godot_shim.h"
@@ -602,11 +603,13 @@ static const DynLibFunction dynlib_functions[] = {
   { "longjmp", (uintptr_t)&longjmp },
 
   // --- memory ---
-  { "malloc", (uintptr_t)&malloc },
-  { "calloc", (uintptr_t)&calloc },
-  { "realloc", (uintptr_t)&realloc },
-  { "free", (uintptr_t)&free },
-  { "posix_memalign", (uintptr_t)&posix_memalign_fake },
+  // thread-caching allocator in front of newlib (fastalloc.c): newlib's
+  // single global malloc lock was a top hot spot during scene loads
+  { "malloc", (uintptr_t)&fa_malloc },
+  { "calloc", (uintptr_t)&fa_calloc },
+  { "realloc", (uintptr_t)&fa_realloc },
+  { "free", (uintptr_t)&fa_free },
+  { "posix_memalign", (uintptr_t)&fa_posix_memalign },
   { "mmap", (uintptr_t)&mmap_fake },
   { "munmap", (uintptr_t)&munmap_fake },
   { "madvise", (uintptr_t)&madvise_fake },
